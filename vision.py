@@ -2,7 +2,7 @@ import cv2
 import cv2.aruco as aruco
 
 class VisionSystem:
-    def __init__(self, url='http://10.153.244.243:4747/video'):  # เปลี่ยน IP DroidCam ตรงนี้
+    def __init__(self, url='http://172.23.33.72:4747/video'):  # เปลี่ยน IP DroidCam ตรงนี้
         self.cap = cv2.VideoCapture(url)
 
         # ใช้ Dictionary สำหรับ ArUco 4x4 (ID สูงสุด ~50)
