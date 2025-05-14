@@ -17,15 +17,20 @@ class VisionSystem:
 
     def run(self):
         print("📷 เริ่มแสดงกล้องสดพร้อมตรวจจับ ArUco (กด ESC เพื่อออก)")
+        prev_count_black = 0
+        prev_count_white = 0
+
         while True:
             ret, frame = self.cap.read()
             if not ret:
                 print("⚠️ ไม่สามารถดึงภาพจากกล้องได้")
                 break
 
-            frame_copy = frame.copy()  # ✅ ใช้ตัวนี้สำหรับวาด marker
+            frame_copy = frame.copy()
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
+
+            warped = None
 
             if ids is not None:
                 ids = ids.flatten()
@@ -42,10 +47,10 @@ class VisionSystem:
                 if len(marker_positions) == 4:
                     try:
                         src_pts = np.float32([
-                            marker_positions[0],  # Top-left
-                            marker_positions[1],  # Top-right
-                            marker_positions[2],  # Bottom-right
-                            marker_positions[3],  # Bottom-left
+                            marker_positions[0],
+                            marker_positions[1],
+                            marker_positions[2],
+                            marker_positions[3],
                         ])
 
                         width, height = 500, 500
@@ -57,21 +62,52 @@ class VisionSystem:
                         ])
 
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
-
-                        # ✅ ใช้ frame ดั้งเดิมที่ไม่มี marker ถูกวาดทับ
                         warped = cv2.warpPerspective(frame, matrix, (width, height))
                         cv2.imshow("Perspective View", warped)
+
+                        # ตรวจจับหมาก
+                        stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+                        blurred = cv2.GaussianBlur(stone_gray, (5, 5), 0)
+                        circles = cv2.HoughCircles(
+                            blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=20,
+                            param1=50, param2=30, minRadius=10, maxRadius=30
+                        )
+
+                        count_black = 0
+                        count_white = 0
+
+                        if circles is not None:
+                            circles = np.uint16(np.around(circles))
+                            for i in circles[0, :]:
+                                cx, cy, r = i
+                                roi = stone_gray[cy - 5:cy + 5, cx - 5:cx + 5]
+                                if roi.size == 0:
+                                    continue
+                                brightness = np.mean(roi)
+                                if brightness > 127:
+                                    count_white += 1
+                                else:
+                                    count_black += 1
+
+                        # ✅ แสดงผลเฉพาะเมื่อจำนวนหมากเปลี่ยน
+                        if (count_black != prev_count_black) or (count_white != prev_count_white):
+                            print("✅ ตรวจพบหมากใหม่")
+                            print(f"จำนวนหมากดำ: {count_black}")
+                            print(f"จำนวนหมากขาว: {count_white}")
+                            prev_count_black = count_black
+                            prev_count_white = count_white
 
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
 
-            # ✅ แสดงกล้องพร้อม marker
             cv2.imshow("ArUco Detection", frame_copy)
 
             if cv2.waitKey(1) & 0xFF == 27:
                 break
 
         self.release()
+
+
 
     def release(self):
         self.cap.release()
