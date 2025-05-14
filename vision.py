@@ -4,8 +4,8 @@ import numpy as np
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    clahe_image = clahe.apply(gray_image)
-    return clahe_image
+    enhanced = clahe.apply(gray_image)
+    return enhanced
 
 class VisionSystem:
     def __init__(self, url='http://172.23.33.72:4747/video'):  # เปลี่ยน IP DroidCam ตรงนี้
@@ -68,11 +68,14 @@ class VisionSystem:
 
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
                         warped = cv2.warpPerspective(frame, matrix, (width, height))
-                        cv2.imshow("Perspective View", warped)
+
+                        # แปลงภาพเป็น grayscale และปรับแสงด้วย CLAHE
+                        stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+                        enhanced = auto_adjust_brightness(stone_gray)
+                        cv2.imshow("Perspective View", enhanced)
 
                         # ตรวจจับหมาก
-                        stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-                        blurred = cv2.GaussianBlur(stone_gray, (5, 5), 0)
+                        blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
                         circles = cv2.HoughCircles(
                             blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=20,
                             param1=50, param2=30, minRadius=10, maxRadius=30
@@ -85,7 +88,7 @@ class VisionSystem:
                             circles = np.uint16(np.around(circles))
                             for i in circles[0, :]:
                                 cx, cy, r = i
-                                roi = stone_gray[cy - 5:cy + 5, cx - 5:cx + 5]
+                                roi = enhanced[cy - 5:cy + 5, cx - 5:cx + 5]
                                 if roi.size == 0:
                                     continue
                                 brightness = np.mean(roi)
@@ -94,7 +97,6 @@ class VisionSystem:
                                 else:
                                     count_black += 1
 
-                        # ✅ แสดงผลเฉพาะเมื่อจำนวนหมากเปลี่ยน
                         if (count_black != prev_count_black) or (count_white != prev_count_white):
                             print("✅ ตรวจพบหมากใหม่")
                             print(f"จำนวนหมากดำ: {count_black}")
@@ -111,8 +113,6 @@ class VisionSystem:
                 break
 
         self.release()
-
-
 
     def release(self):
         self.cap.release()
