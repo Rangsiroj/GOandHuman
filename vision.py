@@ -10,7 +10,7 @@ def auto_adjust_brightness(gray_image):
 
 class VisionSystem:
     def __init__(self, url='http://172.23.33.72:4747/video'):  # เปลี่ยน IP DroidCam ตรงนี้
-        self.cap = cv2.VideoCapture(url)
+        self.cap = cv2.VideoCapture(2)
 
         # ใช้ Dictionary สำหรับ ArUco 4x4 (ID สูงสุด ~50)
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
