@@ -5,17 +5,14 @@ from board_mapper import get_board_position
 # สำหรับเก็บจุดคลิก
 manual_pts = []
 
-
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray_image)
-
 
 def select_point(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN and len(manual_pts) < 4:
         manual_pts.append([x, y])
         print(f"📍 เลือกจุดที่ {len(manual_pts)}: ({x}, {y})")
-
 
 class VisionManual:
     def __init__(self, url='http://10.105.55.249:4747/video'):
@@ -68,6 +65,21 @@ class VisionManual:
                     kernel = np.ones((5, 5), np.uint8)
                     BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                     BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
+
+                    # แสดง label ช่องกระดาน 19x19 บนภาพ
+                    # cell_size = 500 // 19
+                    # for row in range(19):
+                    #     for col in range(19):
+                    #         x = col * cell_size + cell_size // 2
+                    #         y = row * cell_size + cell_size // 2
+
+                    #         col_letter = chr(ord('A') + col)
+                    #         if col_letter >= 'I':
+                    #             col_letter = chr(ord(col_letter) + 1)
+
+                    #         label = f"{col_letter}{19 - row}"
+                    #         cv2.putText(enhanced_color, label, (x - 10, y + 5),
+                    #                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
 
                     cv2.imshow("Perspective View", enhanced_color)
                     cv2.imshow("Black Stones", BW_black)
