@@ -5,8 +5,8 @@ from board_mapper import get_board_position
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    clahe_image = clahe.apply(gray_image)
-    return clahe_image
+    enhanced = clahe.apply(gray_image)
+    return enhanced
 
 class VisionSystem:
     def __init__(self, url='http://10.105.55.249:4747/video'):
@@ -77,91 +77,53 @@ class VisionSystem:
 
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
                         warped = cv2.warpPerspective(frame, matrix, (width, height))
-<<<<<<< HEAD:vision.py
-cv2.imshow("Perspective View", warped)
 
-                        # ตรวจจับหมาก
-stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-blurred = cv2.GaussianBlur(stone_gray, (5, 5), 0)
-circles = cv2.HoughCircles(
-    blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=20,
-    param1=50, param2=30, minRadius=10, maxRadius=30
-    )
+                        stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+                        enhanced = auto_adjust_brightness(stone_gray)
 
-count_black = 0
-count_white = 0
+                        blurred_enhanced = cv2.GaussianBlur(enhanced, (5, 5), 0)
 
-if circles is not None:
-    circles = np.uint16(np.around(circles))
-    for i in circles[0, :]:
-        cx, cy, r = i
-        roi = stone_gray[cy - 5:cy + 5, cx - 5:cx + 5]
-        if roi.size == 0:
-            continue
-            brightness = np.mean(roi)
-            if brightness > 127:
-                count_white += 1
-            else:
-                count_black += 1
+                        BW_black = cv2.threshold(blurred_enhanced, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
+                        BW_white = cv2.threshold(blurred_enhanced, white_thresh, 255, cv2.THRESH_BINARY)[1]
 
-                        # ✅ แสดงผลเฉพาะเมื่อจำนวนหมากเปลี่ยน
-            if (count_black != prev_count_black) or (count_white != prev_count_white):
-                print("✅ ตรวจพบหมากใหม่")
-                print(f"จำนวนหมากดำ: {count_black}")
-                print(f"จำนวนหมากขาว: {count_white}")
-                prev_count_black = count_black
-                prev_count_white = count_white
-=======
+                        kernel = np.ones((5, 5), np.uint8)
+                        BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
+                        BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
-stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-enhanced = auto_adjust_brightness(stone_gray)
+                        cv2.imshow("Perspective View", enhanced)
+                        cv2.imshow("Black Stones", BW_black)
+                        cv2.imshow("White Stones", BW_white)
 
-blurred_enhanced = cv2.GaussianBlur(enhanced, (5, 5), 0)
+                        for mask, color in [(BW_white, "white"), (BW_black, "black")]:
+                            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            for cnt in contours:
+                                (x, y), r = cv2.minEnclosingCircle(cnt)
+                                area = cv2.contourArea(cnt)
+                                perimeter = cv2.arcLength(cnt, True)
+                                circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-BW_black = cv2.threshold(blurred_enhanced, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
-BW_white = cv2.threshold(blurred_enhanced, white_thresh, 255, cv2.THRESH_BINARY)[1]
-
-kernel = np.ones((5, 5), np.uint8)
-BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
-BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
-
-cv2.imshow("Perspective View", enhanced)
-cv2.imshow("Black Stones", BW_black)
-cv2.imshow("White Stones", BW_white)
-
-for mask, color in [(BW_white, "white"), (BW_black, "black")]:
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    for cnt in contours:
-        (x, y), r = cv2.minEnclosingCircle(cnt)
-        area = cv2.contourArea(cnt)
-        perimeter = cv2.arcLength(cnt, True)
-        circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
-
-        if r >= 5 and circularity > 0.5:
-            board_pos = get_board_position(int(x), int(y))
-            if board_pos and board_pos not in self.board_state:
-                if color == self.current_turn:
+                                if r >= 5 and circularity > 0.5:
+                                    board_pos = get_board_position(int(x), int(y))
+                                    if board_pos and board_pos not in self.board_state:
+                                        if color == self.current_turn:
                                             self.board_state[board_pos] = color
                                             print(f"✅ {color.upper()} เดินที่ {board_pos}")
                                             self.current_turn = 'white' if self.current_turn == 'black' else 'black'
-                else:
+                                        else:
                                             print(f"⛔️ ยังไม่ถึงตาของ {color}")
-            elif board_pos in self.board_state:
+                                    elif board_pos in self.board_state:
                                         print(f"⚠️ หมากที่ตำแหน่ง {board_pos} มีอยู่แล้ว")
->>>>>>> 573b899a59cc378f253aa50b6995dec7cda34758:vision_aruco.py
 
-except Exception as e:
-print(f"⚠️ Transform Error: {e}")
+                    except Exception as e:
+                        print(f"⚠️ Transform Error: {e}")
 
-cv2.imshow("ArUco Detection", frame_copy)
-if cv2.waitKey(1) & 0xFF == 27:
-break
+            cv2.imshow("ArUco Detection", frame_copy)
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
 
-self.release()
+        self.release()
 
-
-
-def release(self):
+    def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
         print("🛑 ปิดกล้องเรียบร้อยแล้ว")
