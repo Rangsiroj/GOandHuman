@@ -2,19 +2,22 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 from board_mapper import get_board_position
+from gnugo_text_game import GNUGo  # ✅ เชื่อมต่อ AI
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray_image)
-    return enhanced
+    return clahe.apply(gray_image)
 
 class VisionSystem:
-    def __init__(self, url='http://10.105.55.249:4747/video'):
+    def __init__(self, url='http://172.23.34.65:4747/video'):
         self.cap = cv2.VideoCapture(url)
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
         self.board_state = {}
         self.current_turn = 'black'
+
+        self.gnugo = GNUGo()          # ✅ สร้างการเชื่อมต่อ AI
+        self.gnugo.clear_board()      # ✅ ล้างกระดานก่อนเริ่ม
 
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -108,7 +111,15 @@ class VisionSystem:
                                         if color == self.current_turn:
                                             self.board_state[board_pos] = color
                                             print(f"✅ {color.upper()} เดินที่ {board_pos}")
-                                            self.current_turn = 'white' if self.current_turn == 'black' else 'black'
+
+                                            self.gnugo.play_move(color, board_pos)  # ✅ ส่งให้ AI
+
+                                            if color == 'black':
+                                                ai_move = self.gnugo.genmove('white')  # ✅ ให้ AI เดิน
+                                                print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                                self.board_state[ai_move] = 'white'
+
+                                            self.current_turn = 'black'  # รอผู้เล่นต่อ
                                         else:
                                             print(f"⛔️ ยังไม่ถึงตาของ {color}")
                                     elif board_pos in self.board_state:
@@ -126,4 +137,5 @@ class VisionSystem:
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
+        self.gnugo.quit()  # ✅ ปิด AI
         print("🛑 ปิดกล้องเรียบร้อยแล้ว")

@@ -15,7 +15,7 @@ def select_point(event, x, y, flags, param):
         print(f"📍 เลือกจุดที่ {len(manual_pts)}: ({x}, {y})")
 
 class VisionManual:
-    def __init__(self, url='http://10.105.55.249:4747/video'):
+    def __init__(self, url='http://172.23.34.65:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
