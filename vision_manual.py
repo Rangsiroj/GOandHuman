@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
 from board_mapper import get_board_position
+from gnugo_text_game import GNUGo  # ✅ เพิ่มการเชื่อมต่อ AI
 
-# สำหรับเก็บจุดคลิก
-manual_pts = []
+manual_pts = []  # สำหรับเก็บจุดคลิก
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -23,6 +23,9 @@ class VisionManual:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
         self.board_state = {}
         self.current_turn = 'black'
+
+        self.gnugo = GNUGo()          # ✅ สร้างตัวเชื่อมต่อกับ AI
+        self.gnugo.clear_board()      # ✅ ล้างกระดานก่อนเริ่มเกม
 
     def run(self):
         print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
@@ -66,21 +69,6 @@ class VisionManual:
                     BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                     BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
-                    # แสดง label ช่องกระดาน 19x19 บนภาพ
-                    # cell_size = 500 // 19
-                    # for row in range(19):
-                    #     for col in range(19):
-                    #         x = col * cell_size + cell_size // 2
-                    #         y = row * cell_size + cell_size // 2
-
-                    #         col_letter = chr(ord('A') + col)
-                    #         if col_letter >= 'I':
-                    #             col_letter = chr(ord(col_letter) + 1)
-
-                    #         label = f"{col_letter}{19 - row}"
-                    #         cv2.putText(enhanced_color, label, (x - 10, y + 5),
-                    #                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-
                     cv2.imshow("Perspective View", enhanced_color)
                     cv2.imshow("Black Stones", BW_black)
                     cv2.imshow("White Stones", BW_white)
@@ -99,7 +87,17 @@ class VisionManual:
                                     if color == self.current_turn:
                                         self.board_state[board_pos] = color
                                         print(f"✅ {color.upper()} เดินที่ {board_pos}")
-                                        self.current_turn = 'white' if self.current_turn == 'black' else 'black'
+
+                                        # ✅ ส่งหมากไปยัง GNU Go
+                                        self.gnugo.play_move(color, board_pos)
+
+                                        if color == 'black':
+                                            # ✅ ให้ AI เดินขาวตอบ
+                                            ai_move = self.gnugo.genmove('white')
+                                            print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                            self.board_state[ai_move] = 'white'
+
+                                        self.current_turn = 'black'  # ตาของผู้เล่นต่อไป
                                     else:
                                         print(f"⛔️ ยังไม่ถึงตาของ {color}")
                                 elif board_pos in self.board_state:
@@ -121,4 +119,5 @@ class VisionManual:
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
-        print("🔕 ปิดกล้องเรียบร้อยแล้ว")
+        self.gnugo.quit()  # ✅ ปิด AI
+        print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
