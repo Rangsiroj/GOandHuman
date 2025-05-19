@@ -18,7 +18,7 @@ class VisionSystem:
         self.current_turn = 'black'
         self.last_board_count = 0
         self.frame_count = 0
-        self.prev_gray = None  # สำหรับตรวจจับกล้องขยับ
+        self.prev_gray = None
 
         self.gnugo = GNUGo()
         self.gnugo.clear_board()
@@ -35,7 +35,7 @@ class VisionSystem:
         diff = cv2.absdiff(self.prev_gray, gray)
         score = np.sum(diff)
         self.prev_gray = gray
-        return score < threshold  # ถ้าแตกต่างน้อย แปลว่ากล้องนิ่ง
+        return score < threshold
 
     def run(self):
         print("📷 เริ่มแสดงกล้องสดพร้อมตรวจจับ ArUco (กด ESC เพื่อออก)")
@@ -54,7 +54,7 @@ class VisionSystem:
 
             self.frame_count += 1
             if self.frame_count % 10 != 0:
-                continue  # ตรวจทุก 10 เฟรม
+                continue
 
             brightness = cv2.getTrackbarPos('Brightness', "ArUco Detection") - 50
             contrast = cv2.getTrackbarPos('Contrast', "ArUco Detection") / 50
@@ -70,7 +70,7 @@ class VisionSystem:
                 cv2.imshow("ArUco Detection", frame_copy)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
-                continue  # ข้ามเฟรมนี้ไป
+                continue
 
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
@@ -121,7 +121,7 @@ class VisionSystem:
                                 perimeter = cv2.arcLength(cnt, True)
                                 circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-                                if r >= 5 and circularity > 0.5:
+                                if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
                                     board_pos = get_board_position(int(x), int(y))
                                     if board_pos and board_pos not in self.board_state:
                                         if color == self.current_turn:
@@ -137,8 +137,6 @@ class VisionSystem:
                                                 time.sleep(0.5)
 
                                             self.current_turn = 'black'
-                                        else:
-                                            pass
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
 

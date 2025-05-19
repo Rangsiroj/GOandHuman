@@ -107,7 +107,7 @@ class VisionManual:
                             perimeter = cv2.arcLength(cnt, True)
                             circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-                            if r >= 5 and circularity > 0.5:
+                            if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
                                 board_pos = get_board_position(int(x), int(y))
                                 if board_pos and board_pos not in self.board_state:
                                     if color == self.current_turn:
