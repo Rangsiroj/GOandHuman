@@ -1,8 +1,9 @@
 import cv2
 import cv2.aruco as aruco
 import numpy as np
+import time
 from board_mapper import get_board_position
-from gnugo_text_game import GNUGo  # ✅ เชื่อมต่อ AI
+from gnugo_text_game import GNUGo
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -15,14 +16,26 @@ class VisionSystem:
         self.parameters = aruco.DetectorParameters()
         self.board_state = {}
         self.current_turn = 'black'
+        self.last_board_count = 0
+        self.frame_count = 0
+        self.prev_gray = None  # สำหรับตรวจจับกล้องขยับ
 
-        self.gnugo = GNUGo()          # ✅ สร้างการเชื่อมต่อ AI
-        self.gnugo.clear_board()      # ✅ ล้างกระดานก่อนเริ่ม
+        self.gnugo = GNUGo()
+        self.gnugo.clear_board()
 
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
+
+    def is_camera_stable(self, gray, threshold=1000000):
+        if self.prev_gray is None:
+            self.prev_gray = gray
+            return True
+        diff = cv2.absdiff(self.prev_gray, gray)
+        score = np.sum(diff)
+        self.prev_gray = gray
+        return score < threshold  # ถ้าแตกต่างน้อย แปลว่ากล้องนิ่ง
 
     def run(self):
         print("📷 เริ่มแสดงกล้องสดพร้อมตรวจจับ ArUco (กด ESC เพื่อออก)")
@@ -39,6 +52,10 @@ class VisionSystem:
                 print("⚠️ ไม่สามารถดึงภาพจากกล้องได้")
                 break
 
+            self.frame_count += 1
+            if self.frame_count % 10 != 0:
+                continue  # ตรวจทุก 10 เฟรม
+
             brightness = cv2.getTrackbarPos('Brightness', "ArUco Detection") - 50
             contrast = cv2.getTrackbarPos('Contrast', "ArUco Detection") / 50
             white_thresh = cv2.getTrackbarPos('White Threshold', "ArUco Detection")
@@ -47,6 +64,14 @@ class VisionSystem:
             frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
             frame_copy = frame.copy()
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            if not self.is_camera_stable(gray):
+                print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                cv2.imshow("ArUco Detection", frame_copy)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    break
+                continue  # ข้ามเฟรมนี้ไป
+
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
 
             if ids is not None:
@@ -69,25 +94,16 @@ class VisionSystem:
                             marker_positions[2],
                             marker_positions[3],
                         ])
-
-                        width, height = 500, 500
-                        dst_pts = np.float32([
-                            [0, 0],
-                            [width, 0],
-                            [width, height],
-                            [0, height]
-                        ])
-
+                        dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
-                        warped = cv2.warpPerspective(frame, matrix, (width, height))
+                        warped = cv2.warpPerspective(frame, matrix, (500, 500))
 
                         stone_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(stone_gray)
+                        blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
 
-                        blurred_enhanced = cv2.GaussianBlur(enhanced, (5, 5), 0)
-
-                        BW_black = cv2.threshold(blurred_enhanced, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
-                        BW_white = cv2.threshold(blurred_enhanced, white_thresh, 255, cv2.THRESH_BINARY)[1]
+                        BW_black = cv2.threshold(blurred, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
+                        BW_white = cv2.threshold(blurred, white_thresh, 255, cv2.THRESH_BINARY)[1]
 
                         kernel = np.ones((5, 5), np.uint8)
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
@@ -111,20 +127,18 @@ class VisionSystem:
                                         if color == self.current_turn:
                                             self.board_state[board_pos] = color
                                             print(f"✅ {color.upper()} เดินที่ {board_pos}")
+                                            self.gnugo.play_move(color, board_pos)
 
-                                            self.gnugo.play_move(color, board_pos)  # ✅ ส่งให้ AI
-
-                                            if color == 'black':
-                                                ai_move = self.gnugo.genmove('white')  # ✅ ให้ AI เดิน
+                                            if color == 'black' and len(self.board_state) > self.last_board_count:
+                                                ai_move = self.gnugo.genmove('white')
                                                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                                 self.board_state[ai_move] = 'white'
+                                                self.last_board_count = len(self.board_state)
+                                                time.sleep(0.5)
 
-                                            self.current_turn = 'black'  # รอผู้เล่นต่อ
+                                            self.current_turn = 'black'
                                         else:
-                                            print(f"⛔️ ยังไม่ถึงตาของ {color}")
-                                    elif board_pos in self.board_state:
-                                        print(f"⚠️ หมากที่ตำแหน่ง {board_pos} มีอยู่แล้ว")
-
+                                            pass
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
 
@@ -137,5 +151,5 @@ class VisionSystem:
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
-        self.gnugo.quit()  # ✅ ปิด AI
-        print("🛑 ปิดกล้องเรียบร้อยแล้ว")
+        self.gnugo.quit()
+        print("🛑 ปิดกล้องและ AI เรียบร้อยแล้ว")

@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
+import time
 from board_mapper import get_board_position
-from gnugo_text_game import GNUGo  # ✅ เพิ่มการเชื่อมต่อ AI
+from gnugo_text_game import GNUGo
 
-manual_pts = []  # สำหรับเก็บจุดคลิก
+manual_pts = []
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -23,9 +24,21 @@ class VisionManual:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
         self.board_state = {}
         self.current_turn = 'black'
+        self.last_board_count = 0
+        self.frame_count = 0
+        self.prev_gray = None
 
-        self.gnugo = GNUGo()          # ✅ สร้างตัวเชื่อมต่อกับ AI
-        self.gnugo.clear_board()      # ✅ ล้างกระดานก่อนเริ่มเกม
+        self.gnugo = GNUGo()
+        self.gnugo.clear_board()
+
+    def is_camera_stable(self, gray, threshold=1000000):
+        if self.prev_gray is None:
+            self.prev_gray = gray
+            return True
+        diff = cv2.absdiff(self.prev_gray, gray)
+        score = np.sum(diff)
+        self.prev_gray = gray
+        return score < threshold
 
     def run(self):
         print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
@@ -43,6 +56,10 @@ class VisionManual:
                 print("⚠️ ไม่สามารถดึงภาพจากกล้องได้")
                 break
 
+            self.frame_count += 1
+            if self.frame_count % 10 != 0:
+                continue
+
             brightness = cv2.getTrackbarPos('Brightness', "Manual Detection") - 50
             contrast = cv2.getTrackbarPos('Contrast', "Manual Detection") / 50
             white_thresh = cv2.getTrackbarPos('White Threshold', "Manual Detection")
@@ -50,6 +67,14 @@ class VisionManual:
 
             frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
             frame_copy = frame.copy()
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            if not self.is_camera_stable(gray):
+                print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                cv2.imshow("Manual Detection", frame_copy)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    break
+                continue
 
             if len(manual_pts) == 4:
                 try:
@@ -61,9 +86,10 @@ class VisionManual:
                     enhanced_color = warped.copy()
                     gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                     enhanced = auto_adjust_brightness(gray)
+                    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
 
-                    BW_black = cv2.threshold(enhanced, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
-                    BW_white = cv2.threshold(enhanced, white_thresh, 255, cv2.THRESH_BINARY)[1]
+                    BW_black = cv2.threshold(blurred, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
+                    BW_white = cv2.threshold(blurred, white_thresh, 255, cv2.THRESH_BINARY)[1]
 
                     kernel = np.ones((5, 5), np.uint8)
                     BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
@@ -87,21 +113,18 @@ class VisionManual:
                                     if color == self.current_turn:
                                         self.board_state[board_pos] = color
                                         print(f"✅ {color.upper()} เดินที่ {board_pos}")
-
-                                        # ✅ ส่งหมากไปยัง GNU Go
                                         self.gnugo.play_move(color, board_pos)
 
-                                        if color == 'black':
-                                            # ✅ ให้ AI เดินขาวตอบ
+                                        if color == 'black' and len(self.board_state) > self.last_board_count:
                                             ai_move = self.gnugo.genmove('white')
                                             print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                             self.board_state[ai_move] = 'white'
+                                            self.last_board_count = len(self.board_state)
+                                            time.sleep(0.5)
 
-                                        self.current_turn = 'black'  # ตาของผู้เล่นต่อไป
-                                    else:
-                                        print(f"⛔️ ยังไม่ถึงตาของ {color}")
+                                        self.current_turn = 'black'
                                 elif board_pos in self.board_state:
-                                    print(f"⚠️ หมากที่ตำแหน่ง {board_pos} มีอยู่แล้ว")
+                                    pass
 
                 except Exception as e:
                     print(f"⚠️ Transform Error: {e}")
@@ -119,5 +142,5 @@ class VisionManual:
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
-        self.gnugo.quit()  # ✅ ปิด AI
+        self.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
