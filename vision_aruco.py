@@ -20,7 +20,7 @@ def board_to_pixel(position):
         return (0, 0)
     col = ord(position[0].upper()) - ord('A')
     if col >= 8:
-        col -= 1  # skip 'I'
+        col -= 1  # ข้าม I
     row = 19 - int(position[1:])
     x = int((col / 18) * 500)
     y = int((row / 18) * 500)
@@ -46,8 +46,6 @@ def draw_ai_move(img, move_str, color=(0, 255, 255)):
     cv2.circle(img, (x, y), 12, color, 2)
     cv2.putText(img, move_str, (x + 8, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-self.latest_ai_move = None
-
 class VisionSystem:
     def __init__(self, url='http://172.23.32.136:4747/video'):
         self.cap = cv2.VideoCapture(url)
@@ -55,6 +53,7 @@ class VisionSystem:
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
+
         self.board_state = {}
         self.current_turn = 'black'
         self.last_board_count = 0
@@ -84,7 +83,6 @@ class VisionSystem:
 
     def run(self):
         print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
-
         cv2.namedWindow("Manual Detection")
         cv2.setMouseCallback("Manual Detection", select_point)
         cv2.createTrackbar('Brightness', "Manual Detection", 38, 100, lambda x: None)
@@ -113,7 +111,7 @@ class VisionSystem:
 
             if not self.is_camera_stable(gray):
                 if not self.has_warned_motion:
-                    # print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                    print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
                     self.has_warned_motion = True
                 cv2.imshow("Manual Detection", frame_copy)
                 if cv2.waitKey(1) & 0xFF == 27:
@@ -170,7 +168,6 @@ class VisionSystem:
 
                             if color == 'black':
                                 ai_move = self.gnugo.genmove('white')
-self.latest_ai_move = ai_move
                                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                 self.board_state[ai_move] = 'white'
                                 self.latest_ai_move = ai_move
@@ -193,10 +190,7 @@ self.latest_ai_move = ai_move
                     if self.latest_ai_move:
                         draw_ai_move(enhanced_color, self.latest_ai_move)
 
-                    draw_board_grid(warped)
-if self.latest_ai_move:
-    draw_ai_move(warped, self.latest_ai_move)
-score = self.gnugo.send_command("estimate_score")
+                    score = self.gnugo.send_command("estimate_score")
                     cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
                     cv2.imshow("Perspective View", enhanced_color)
@@ -221,4 +215,3 @@ score = self.gnugo.send_command("estimate_score")
         cv2.destroyAllWindows()
         self.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
-        
