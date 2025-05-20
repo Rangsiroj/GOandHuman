@@ -46,8 +46,6 @@ def draw_ai_move(img, move_str, color=(0, 255, 255)):
     cv2.circle(img, (x, y), 12, color, 2)
     cv2.putText(img, move_str, (x + 8, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-self.latest_ai_move = None
-
 class VisionSystem:
     def __init__(self, url='http://172.23.32.136:4747/video'):
         self.cap = cv2.VideoCapture(url)
@@ -84,7 +82,6 @@ class VisionSystem:
 
     def run(self):
         print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
-
         cv2.namedWindow("Manual Detection")
         cv2.setMouseCallback("Manual Detection", select_point)
         cv2.createTrackbar('Brightness', "Manual Detection", 38, 100, lambda x: None)
@@ -141,6 +138,13 @@ class VisionSystem:
                     BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                     BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
+                    # กรอง QR ไม่ให้ตรวจจับเป็นหมาก
+                    if 'corners' in locals():
+                        for corner in corners:
+                            pts = np.int32(corner[0])
+                            cv2.fillConvexPoly(BW_black, pts, 0)
+                            cv2.fillConvexPoly(BW_white, pts, 0)
+
                     captured_positions = []
                     previous_board_state = self.board_state.copy()
 
@@ -173,7 +177,6 @@ class VisionSystem:
                                 self.latest_ai_move = ai_move
                                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                 self.board_state[ai_move] = 'white'
-                                self.latest_ai_move = ai_move
 
                                 captured_positions = [pos for pos in previous_board_state
                                                       if pos not in self.board_state and previous_board_state[pos] != 'white']
@@ -193,19 +196,10 @@ class VisionSystem:
                     if self.latest_ai_move:
                         draw_ai_move(enhanced_color, self.latest_ai_move)
 
-                    draw_board_grid(warped)
-                    if self.latest_ai_move:
-                        draw_ai_move(warped, self.latest_ai_move)
-                        score = self.gnugo.send_command("estimate_score")
+                    score = self.gnugo.send_command("estimate_score")
                     cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
                     cv2.imshow("Perspective View", enhanced_color)
-                    if ids is not None:
-                        for corner in corners:
-                            pts = np.int32(corner[0])
-                            cv2.fillConvexPoly(BW_black, pts, 0)
-                            cv2.fillConvexPoly(BW_white, pts, 0)
-
                     cv2.imshow("Black Stones", BW_black)
                     cv2.imshow("White Stones", BW_white)
 
