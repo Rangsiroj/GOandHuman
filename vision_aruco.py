@@ -19,7 +19,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://172.23.34.65:4747/video'):
+    def __init__(self, url='http://172.23.32.136:4747/video'):
         self.cap = cv2.VideoCapture(url)
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()

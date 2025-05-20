@@ -25,7 +25,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionManual:
-    def __init__(self, url='http://172.23.34.65:4747/video'):
+    def __init__(self, url='http://172.23.32.136:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
