@@ -41,20 +41,16 @@ class VisionSystem:
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
-
         if self.prev_gray is None:
             self.prev_gray = gray
             self.last_motion_time = now
             return True
-
         diff = cv2.absdiff(self.prev_gray, gray)
         score = np.sum(diff)
         self.prev_gray = gray
-
         if score > threshold:
             self.last_motion_time = now
             return False
-
         return (now - self.last_motion_time) > self.motion_cooldown
 
     def run(self):
@@ -129,15 +125,13 @@ class VisionSystem:
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                         BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
-                        cv2.imshow("Perspective View", warped)
-                        cv2.imshow("Black Stones", BW_black)
-                        cv2.imshow("White Stones", BW_white)
-
                         captured_positions = []
                         previous_board_state = self.board_state.copy()
 
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            detected_positions = set()
+
                             for cnt in contours:
                                 (x, y), r = cv2.minEnclosingCircle(cnt)
                                 area = cv2.contourArea(cnt)
@@ -146,26 +140,32 @@ class VisionSystem:
 
                                 if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
                                     board_pos = get_board_position(int(x), int(y))
-                                    if board_pos and board_pos not in self.board_state:
-                                        if color == self.current_turn:
-                                            self.board_state[board_pos] = color
-                                            print(f"✅ {color.upper()} เดินที่ {board_pos}")
-                                            self.gnugo.play_move(color, board_pos)
+                                    if board_pos:
+                                        detected_positions.add(board_pos)
 
-                                            if color == 'black' and len(self.board_state) > self.last_board_count:
-                                                ai_move = self.gnugo.genmove('white')
-                                                print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
-                                                self.board_state[ai_move] = 'white'
+                            previous_positions = {pos for pos, c in self.board_state.items() if c == color}
+                            diff = detected_positions - previous_positions
 
-                                                captured_positions = [pos for pos in previous_board_state
-                                                                      if pos not in self.board_state and previous_board_state[pos] != 'white']
-                                                if captured_positions:
-                                                    print(f"💥 จับกินที่: {', '.join(captured_positions)}")
+                            if color == self.current_turn and len(diff) == 1:
+                                board_pos = diff.pop()
+                                self.board_state[board_pos] = color
+                                print(f"✅ {color.upper()} เดินที่ {board_pos}")
+                                self.gnugo.play_move(color, board_pos)
 
-                                                self.last_board_count = len(self.board_state)
-                                                time.sleep(0.5)
+                                if color == 'black':
+                                    ai_move = self.gnugo.genmove('white')
+                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                    self.board_state[ai_move] = 'white'
 
-                                            self.current_turn = 'black'
+                                    captured_positions = [pos for pos in previous_board_state
+                                                          if pos not in self.board_state and previous_board_state[pos] != 'white']
+                                    if captured_positions:
+                                        print(f"💥 จับกินที่: {', '.join(captured_positions)}")
+
+                                    self.last_board_count = len(self.board_state)
+                                    time.sleep(0.5)
+
+                                self.current_turn = 'black'
 
                         for pos in captured_positions:
                             px, py = board_to_pixel(pos)
