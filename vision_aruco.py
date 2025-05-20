@@ -20,7 +20,7 @@ def board_to_pixel(position):
     y = int((row / 18) * 500)
     return (x, y)
 
-def draw_board_grid(img, size=500, line_color=(180, 180, 180)):
+def draw_board_grid(img, size=720, line_color=(180, 180, 180)):
     step = size // 18
     for i in range(19):
         x = y = i * step
@@ -133,9 +133,9 @@ class VisionSystem:
                 if len(marker_positions) == 4:
                     try:
                         src_pts = order_points_clockwise(marker_positions)
-                        dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
+                        dst_pts = np.float32([[0, 0], [720, 0], [720, 720], [0, 720]])
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
-                        warped = cv2.warpPerspective(frame, matrix, (500, 500))
+                        warped = cv2.warpPerspective(frame, matrix, (720, 720))
 
                         gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(gray)
@@ -163,7 +163,7 @@ class VisionSystem:
 
                                 if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
                                     board_pos = get_board_position(int(x), int(y))
-                                    if board_pos:
+                                    if board_pos and board_pos not in self.board_state:
                                         detected_positions.add(board_pos)
 
                             previous_positions = {pos for pos, c in self.board_state.items() if c == color}
@@ -192,7 +192,7 @@ class VisionSystem:
                                 self.current_turn = 'black'
 
                         enhanced_color = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-                        draw_board_grid(enhanced_color)
+                        draw_board_grid(enhanced_color, size=720)
                         if self.latest_ai_move:
                             draw_ai_move(enhanced_color, self.latest_ai_move)
 
