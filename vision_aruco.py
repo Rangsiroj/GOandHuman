@@ -27,6 +27,23 @@ def draw_board_grid(img, size=500, line_color=(180, 180, 180)):
         cv2.line(img, (x, 0), (x, size), line_color, 1)
         cv2.line(img, (0, y), (size, y), line_color, 1)
 
+def order_points_clockwise(pts_dict):
+    pts = np.array(list(pts_dict.values()))
+    s = pts.sum(axis=1)
+    diff = np.diff(pts, axis=1)
+    ordered = {
+        'top-left': pts[np.argmin(s)],
+        'top-right': pts[np.argmin(diff)],
+        'bottom-right': pts[np.argmax(s)],
+        'bottom-left': pts[np.argmax(diff)]
+    }
+    return np.float32([
+        ordered['top-left'],
+        ordered['top-right'],
+        ordered['bottom-right'],
+        ordered['bottom-left']
+    ])
+
 def draw_ai_move(img, move_str, color=(0, 255, 255)):
     if len(move_str) < 2:
         return
@@ -115,12 +132,7 @@ class VisionSystem:
 
                 if len(marker_positions) == 4:
                     try:
-                        src_pts = np.float32([
-                            marker_positions[0],  # top-left
-                            marker_positions[1],  # top-right
-                            marker_positions[2],  # bottom-right
-                            marker_positions[3],  # bottom-left
-                        ])
+                        src_pts = order_points_clockwise(marker_positions)
                         dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
                         warped = cv2.warpPerspective(frame, matrix, (500, 500))
