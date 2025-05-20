@@ -57,7 +57,7 @@ class VisionManual:
         return (now - self.last_motion_time) > self.motion_cooldown
 
     def run(self):
-        # print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
+        print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
 
         cv2.namedWindow("Manual Detection")
         cv2.setMouseCallback("Manual Detection", select_point)
@@ -86,7 +86,7 @@ class VisionManual:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             if not self.is_camera_stable(gray):
-                print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                # print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
                 cv2.imshow("Manual Detection", frame_copy)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
