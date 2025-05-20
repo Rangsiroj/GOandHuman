@@ -19,10 +19,32 @@ def board_to_pixel(position):
     if len(position) < 2:
         return (0, 0)
     col = ord(position[0].upper()) - ord('A')
+    if col >= 8:
+        col -= 1  # skip 'I'
     row = 19 - int(position[1:])
     x = int((col / 18) * 500)
     y = int((row / 18) * 500)
     return (x, y)
+
+def draw_board_grid(img, size=500, line_color=(180, 180, 180)):
+    step = size // 18
+    for i in range(19):
+        x = y = i * step
+        cv2.line(img, (x, 0), (x, size), line_color, 1)
+        cv2.line(img, (0, y), (size, y), line_color, 1)
+
+def draw_ai_move(img, move_str, color=(0, 255, 255)):
+    if len(move_str) < 2:
+        return
+    col = ord(move_str[0].upper()) - ord('A')
+    if col >= 8:
+        col -= 1
+    row = 19 - int(move_str[1:])
+    step = img.shape[0] // 18
+    x = int(col * step)
+    y = int(row * step)
+    cv2.circle(img, (x, y), 12, color, 2)
+    cv2.putText(img, move_str, (x + 8, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 class VisionManual:
     def __init__(self, url='http://172.23.32.136:4747/video'):
@@ -38,9 +60,11 @@ class VisionManual:
         self.prev_gray = None
         self.last_motion_time = time.time()
         self.motion_cooldown = 1.0
+        self.has_warned_motion = False
 
         self.gnugo = GNUGo()
         self.gnugo.clear_board()
+        self.latest_ai_move = None
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -86,11 +110,15 @@ class VisionManual:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             if not self.is_camera_stable(gray):
-                # print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                if not self.has_warned_motion:
+                    # print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
+                    self.has_warned_motion = True
                 cv2.imshow("Manual Detection", frame_copy)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
+
+            self.has_warned_motion = False
 
             if len(manual_pts) == 4:
                 try:
@@ -142,6 +170,7 @@ class VisionManual:
                                 ai_move = self.gnugo.genmove('white')
                                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                 self.board_state[ai_move] = 'white'
+                                self.latest_ai_move = ai_move
 
                                 captured_positions = [pos for pos in previous_board_state
                                                       if pos not in self.board_state and previous_board_state[pos] != 'white']
@@ -156,6 +185,10 @@ class VisionManual:
                     for pos in captured_positions:
                         px, py = board_to_pixel(pos)
                         cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
+
+                    draw_board_grid(enhanced_color)
+                    if self.latest_ai_move:
+                        draw_ai_move(enhanced_color, self.latest_ai_move)
 
                     score = self.gnugo.send_command("estimate_score")
                     cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
