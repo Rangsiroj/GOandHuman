@@ -57,7 +57,7 @@ class VisionManual:
         return (now - self.last_motion_time) > self.motion_cooldown
 
     def run(self):
-        print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
+        # print("📷 เริ่มคลิกเลือก 4 มุมเพื่อทำ Perspective Transform (ESC เพื่อออก)")
 
         cv2.namedWindow("Manual Detection")
         cv2.setMouseCallback("Manual Detection", select_point)
