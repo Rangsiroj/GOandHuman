@@ -9,6 +9,15 @@ def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray_image)
 
+def board_to_pixel(position):
+    if len(position) < 2:
+        return (0, 0)
+    col = ord(position[0].upper()) - ord('A')
+    row = 19 - int(position[1:])
+    x = int((col / 18) * 500)
+    y = int((row / 18) * 500)
+    return (x, y)
+
 class VisionSystem:
     def __init__(self, url='http://172.23.34.65:4747/video'):
         self.cap = cv2.VideoCapture(url)
@@ -19,6 +28,8 @@ class VisionSystem:
         self.last_board_count = 0
         self.frame_count = 0
         self.prev_gray = None
+        self.last_motion_time = time.time()
+        self.motion_cooldown = 1.0
 
         self.gnugo = GNUGo()
         self.gnugo.clear_board()
@@ -28,14 +39,23 @@ class VisionSystem:
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
 
-    def is_camera_stable(self, gray, threshold=1000000):
+    def is_camera_stable(self, gray, threshold=500000):
+        now = time.time()
+
         if self.prev_gray is None:
             self.prev_gray = gray
+            self.last_motion_time = now
             return True
+
         diff = cv2.absdiff(self.prev_gray, gray)
         score = np.sum(diff)
         self.prev_gray = gray
-        return score < threshold
+
+        if score > threshold:
+            self.last_motion_time = now
+            return False
+
+        return (now - self.last_motion_time) > self.motion_cooldown
 
     def run(self):
         print("📷 เริ่มแสดงกล้องสดพร้อมตรวจจับ ArUco (กด ESC เพื่อออก)")
@@ -109,9 +129,12 @@ class VisionSystem:
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                         BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
-                        cv2.imshow("Perspective View", enhanced)
+                        cv2.imshow("Perspective View", warped)
                         cv2.imshow("Black Stones", BW_black)
                         cv2.imshow("White Stones", BW_white)
+
+                        captured_positions = []
+                        previous_board_state = self.board_state.copy()
 
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -133,10 +156,26 @@ class VisionSystem:
                                                 ai_move = self.gnugo.genmove('white')
                                                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                                 self.board_state[ai_move] = 'white'
+
+                                                captured_positions = [pos for pos in previous_board_state
+                                                                      if pos not in self.board_state and previous_board_state[pos] != 'white']
+                                                if captured_positions:
+                                                    print(f"💥 จับกินที่: {', '.join(captured_positions)}")
+
                                                 self.last_board_count = len(self.board_state)
                                                 time.sleep(0.5)
 
                                             self.current_turn = 'black'
+
+                        for pos in captured_positions:
+                            px, py = board_to_pixel(pos)
+                            cv2.circle(warped, (px, py), 15, (0, 0, 255), 2)
+
+                        score = self.gnugo.send_command("estimate_score")
+                        cv2.putText(warped, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+                        cv2.imshow("Perspective View", warped)
+
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
 
