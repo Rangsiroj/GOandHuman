@@ -25,7 +25,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionManual:
-    def __init__(self, url='http://172.23.32.136:4747/video'):
+    def __init__(self, url='http://10.151.31.60:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -64,7 +64,7 @@ class VisionManual:
         cv2.createTrackbar('Brightness', "Manual Detection", 38, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Manual Detection", 41, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Manual Detection", 240, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Manual Detection", 58, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Manual Detection", 41, 255, lambda x: None)
 
         while True:
             ret, frame = self.cap.read()

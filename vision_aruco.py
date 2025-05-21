@@ -20,51 +20,13 @@ def board_to_pixel(position):
     y = int((row / 18) * 500)
     return (x, y)
 
-def draw_board_grid(img, size=720, line_color=(180, 180, 180)):
-    step = size // 18
-    for i in range(19):
-        x = y = i * step
-        cv2.line(img, (x, 0), (x, size), line_color, 1)
-        cv2.line(img, (0, y), (size, y), line_color, 1)
-
-def order_points_clockwise(pts_dict):
-    pts = np.array(list(pts_dict.values()))
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1)
-    ordered = {
-        'top-left': pts[np.argmin(s)],
-        'top-right': pts[np.argmin(diff)],
-        'bottom-right': pts[np.argmax(s)],
-        'bottom-left': pts[np.argmax(diff)]
-    }
-    return np.float32([
-        ordered['top-left'],
-        ordered['top-right'],
-        ordered['bottom-right'],
-        ordered['bottom-left']
-    ])
-
-def draw_ai_move(img, move_str, color=(0, 255, 255)):
-    if len(move_str) < 2:
-        return
-    col = ord(move_str[0].upper()) - ord('A')
-    if col >= 8:
-        col -= 1
-    row = 19 - int(move_str[1:])
-    step = img.shape[0] // 18
-    x = int(col * step)
-    y = int(row * step)
-    cv2.circle(img, (x, y), 12, color, 2)
-    cv2.putText(img, move_str, (x + 8, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-
 class VisionSystem:
-    def __init__(self, url='http://172.23.32.136:4747/video'):
+    def __init__(self, url='http://10.151.31.60:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
-
         self.board_state = {}
         self.current_turn = 'black'
         self.last_board_count = 0
@@ -72,14 +34,19 @@ class VisionSystem:
         self.prev_gray = None
         self.last_motion_time = time.time()
         self.motion_cooldown = 1.0
-        self.has_warned_motion = False
 
         self.gnugo = GNUGo()
         self.gnugo.clear_board()
-        self.latest_ai_move = None
 
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
+
+        # 🟢 สร้างหน้าต่างและ trackbar สำหรับปรับค่าพารามิเตอร์
+        cv2.namedWindow("Perspective View")
+        cv2.createTrackbar('Brightness', "Perspective View", 38, 100, lambda x: None)
+        cv2.createTrackbar('Contrast', "Perspective View", 41, 100, lambda x: None)
+        cv2.createTrackbar('White Threshold', "Perspective View", 240, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 55, 255, lambda x: None)
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -96,8 +63,8 @@ class VisionSystem:
         return (now - self.last_motion_time) > self.motion_cooldown
 
     def run(self):
-        print("📷 กำลังใช้งาน ArUco เพื่อตรวจมุมกระดาน (ESC เพื่อออก)")
-        cv2.namedWindow("ArUco Detection")
+        print("📷 เริ่มตรวจจับกระดานด้วย ArUco (ESC เพื่อออก)")
+        cv2.namedWindow("Aruco Detection")
 
         while True:
             ret, frame = self.cap.read()
@@ -109,18 +76,22 @@ class VisionSystem:
             if self.frame_count % 10 != 0:
                 continue
 
+            # ดึงค่าจาก trackbar
+            brightness = cv2.getTrackbarPos('Brightness', "Perspective View") - 50
+            contrast = cv2.getTrackbarPos('Contrast', "Perspective View") / 50
+            white_thresh = cv2.getTrackbarPos('White Threshold', "Perspective View")
+            black_thresh = cv2.getTrackbarPos('Black Threshold', "Perspective View")
+
+            # ปรับภาพ
+            frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
+
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             if not self.is_camera_stable(gray):
-                if not self.has_warned_motion:
-                    print("📸 กล้องกำลังขยับ... รอให้หยุดก่อนตรวจจับหมาก")
-                    self.has_warned_motion = True
-                cv2.imshow("ArUco Detection", frame)
+                cv2.imshow("Aruco Detection", frame)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
-
-            self.has_warned_motion = False
 
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
             if ids is not None and len(ids) >= 4:
@@ -132,17 +103,23 @@ class VisionSystem:
 
                 if len(marker_positions) == 4:
                     try:
-                        src_pts = order_points_clockwise(marker_positions)
-                        dst_pts = np.float32([[0, 0], [720, 0], [720, 720], [0, 720]])
+                        src_pts = np.float32([
+                            marker_positions[0],
+                            marker_positions[1],
+                            marker_positions[2],
+                            marker_positions[3]
+                        ])
+                        dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
-                        warped = cv2.warpPerspective(frame, matrix, (720, 720))
+                        warped = cv2.warpPerspective(frame, matrix, (500, 500))
 
+                        enhanced_color = warped.copy()
                         gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(gray)
                         blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
 
-                        BW_black = cv2.threshold(blurred, 58, 255, cv2.THRESH_BINARY_INV)[1]
-                        BW_white = cv2.threshold(blurred, 240, 255, cv2.THRESH_BINARY)[1]
+                        BW_black = cv2.threshold(blurred, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
+                        BW_white = cv2.threshold(blurred, white_thresh, 255, cv2.THRESH_BINARY)[1]
 
                         kernel = np.ones((5, 5), np.uint8)
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
@@ -163,7 +140,7 @@ class VisionSystem:
 
                                 if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
                                     board_pos = get_board_position(int(x), int(y))
-                                    if board_pos and board_pos not in self.board_state:
+                                    if board_pos:
                                         detected_positions.add(board_pos)
 
                             previous_positions = {pos for pos, c in self.board_state.items() if c == color}
@@ -179,7 +156,6 @@ class VisionSystem:
                                     ai_move = self.gnugo.genmove('white')
                                     print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
                                     self.board_state[ai_move] = 'white'
-                                    self.latest_ai_move = ai_move
 
                                     captured_positions = [pos for pos in previous_board_state
                                                           if pos not in self.board_state and previous_board_state[pos] != 'white']
@@ -191,10 +167,9 @@ class VisionSystem:
 
                                 self.current_turn = 'black'
 
-                        enhanced_color = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-                        draw_board_grid(enhanced_color, size=720)
-                        if self.latest_ai_move:
-                            draw_ai_move(enhanced_color, self.latest_ai_move)
+                        for pos in captured_positions:
+                            px, py = board_to_pixel(pos)
+                            cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
 
                         score = self.gnugo.send_command("estimate_score")
                         cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
@@ -207,7 +182,7 @@ class VisionSystem:
                         print(f"⚠️ Transform Error: {e}")
 
             aruco.drawDetectedMarkers(frame, corners, ids)
-            cv2.imshow("ArUco Detection", frame)
+            cv2.imshow("Aruco Detection", frame)
             if cv2.waitKey(1) & 0xFF == 27:
                 break
 
@@ -218,3 +193,8 @@ class VisionSystem:
         cv2.destroyAllWindows()
         self.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
+
+# เรียกใช้งาน
+if __name__ == "__main__":
+    system = VisionSystem()
+    system.run()
