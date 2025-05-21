@@ -138,7 +138,7 @@ class VisionSystem:
                                 perimeter = cv2.arcLength(cnt, True)
                                 circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-                                if 6 <= r <= 15 and 0.7 <= circularity <= 1.2 and 50 <= area <= 500:
+                                if 8 <= r <= 14 and 0.85 <= circularity <= 1.1 and 80 <= area <= 400:
                                     board_pos = get_board_position(int(x), int(y))
                                     if board_pos:
                                         detected_positions.add(board_pos)
