@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import time
-from board_mapper import get_board_position
+from board_mapper_manual import get_board_position
 from gnugo_text_game import GNUGo
 
 manual_pts = []

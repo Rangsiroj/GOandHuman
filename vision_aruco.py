@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import time
 import cv2.aruco as aruco
-from board_mapper import get_board_position
+from board_mapper_aruco import get_board_position
+# from board_mapper import draw_board_grid
 from gnugo_text_game import GNUGo
 
 def auto_adjust_brightness(gray_image):
@@ -46,7 +47,7 @@ class VisionSystem:
         cv2.createTrackbar('Brightness', "Perspective View", 38, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Perspective View", 41, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 240, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 55, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 63, 255, lambda x: None)
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -110,11 +111,26 @@ class VisionSystem:
                             marker_positions[3]
                         ])
                         dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
+                        # MARGIN = -25  # ตัดขอบ 20 พิกเซลจากทุกด้าน
+                        # PIXEL = 500
+
+                        # dst_pts = np.float32([
+                        #     [MARGIN, MARGIN],              # Top-left
+                        #     [PIXEL - MARGIN, MARGIN],        # Top-right
+                        #     [PIXEL - MARGIN, PIXEL - MARGIN],  # Bottom-right
+                        #     [MARGIN, PIXEL - MARGIN]         # Bottom-left
+                        # ])
+
+
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
                         warped = cv2.warpPerspective(frame, matrix, (500, 500))
 
-                        enhanced_color = warped.copy()
-                        gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+                        MARGIN = 20
+                        cropped = warped[MARGIN:500 - MARGIN, MARGIN:500 - MARGIN]
+
+                        # ใช้ cropped สำหรับตรวจจับหมาก
+                        enhanced_color = cropped.copy()
+                        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(gray)
                         blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
 
@@ -132,16 +148,21 @@ class VisionSystem:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                             detected_positions = set()
 
-                            for cnt in contours:
-                                (x, y), r = cv2.minEnclosingCircle(cnt)
-                                area = cv2.contourArea(cnt)
-                                perimeter = cv2.arcLength(cnt, True)
-                                circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
+                        for cnt in contours:
+                            (x, y), r = cv2.minEnclosingCircle(cnt)
+                            area = cv2.contourArea(cnt)
+                            perimeter = cv2.arcLength(cnt, True)
+                            circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
 
-                                if 8 <= r <= 14 and 0.85 <= circularity <= 1.1 and 80 <= area <= 400:
-                                    board_pos = get_board_position(int(x), int(y))
-                                    if board_pos:
-                                        detected_positions.add(board_pos)
+                            if 8 <= r <= 14 and 0.85 <= circularity <= 1.1 and 80 <= area <= 400:
+                                board_pos = get_board_position(int(x), int(y))
+                                if board_pos:
+                                    detected_positions.add(board_pos)
+
+                                    # 🔍 แสดงตำแหน่งบนภาพ Perspective View เพื่อ debug
+                                    cv2.putText(enhanced_color, f"{board_pos}", (int(x), int(y)),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+
 
                             previous_positions = {pos for pos, c in self.board_state.items() if c == color}
                             diff = detected_positions - previous_positions
@@ -173,10 +194,11 @@ class VisionSystem:
 
                         score = self.gnugo.send_command("estimate_score")
                         cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                        # draw_board_grid(enhanced_color)  # เพิ่มบรรทัดนี้ก่อนแสดงภาพ
 
                         cv2.imshow("Perspective View", enhanced_color)
                         cv2.imshow("Black Stones", BW_black)
-                        cv2.imshow("White Stones", BW_white)
+                        # cv2.imshow("White Stones", BW_white)
 
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
