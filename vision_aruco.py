@@ -22,7 +22,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://10.151.31.60:4747/video'):
+    def __init__(self, url='http://10.99.155.18:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
