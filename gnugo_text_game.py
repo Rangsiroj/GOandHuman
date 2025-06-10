@@ -1,7 +1,7 @@
 import subprocess
 
 class GNUGo:
-    def __init__(self, gnugo_path='gnugo.exe'):
+    def __init__(self, gnugo_path='GNU_GO\gnugo.exe'):
         self.process = subprocess.Popen(
             [gnugo_path, '--mode', 'gtp'],
             stdin=subprocess.PIPE,
