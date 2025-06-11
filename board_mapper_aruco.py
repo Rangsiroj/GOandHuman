@@ -26,7 +26,7 @@
 #     return f"{col_letter}{row_number}"
 
 def get_board_position(x, y):
-    grid_size = 460 / 18  # 19 ช่องมี 18 ระยะ
+    grid_size = 450 / 18  # 19 ช่องมี 18 ระยะ
     col = round(x / grid_size)
     row = round(y / grid_size)
     if 0 <= col <= 18 and 0 <= row <= 18:
