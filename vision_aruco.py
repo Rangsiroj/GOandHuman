@@ -21,22 +21,19 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://172.23.44.137:4747/video'):
+    def __init__(self, url='http://10.48.203.246:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
-        self.board_state = {}
-        self.current_turn = 'black'
-        self.last_board_count = 0
+
+        self.gnugo = GNUGo()
+
         self.frame_count = 0
         self.prev_gray = None
         self.last_motion_time = time.time()
         self.motion_cooldown = 1.0
-
-        self.gnugo = GNUGo()
-        self.gnugo.clear_board()
 
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
