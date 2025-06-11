@@ -27,9 +27,12 @@ class VisionSystem:
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
-
-        self.gnugo = GNUGo()
-
+        self.board_state = {}
+        self.captured_history = set()
+        self.current_turn = 'black'
+        self.pass_count = 0
+        self.move_history = []
+        self.last_board_count = 0
         self.frame_count = 0
         self.prev_gray = None
         self.last_motion_time = time.time()
@@ -42,7 +45,7 @@ class VisionSystem:
         cv2.createTrackbar('Brightness', "Perspective View", 91, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Perspective View", 78, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 252, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 90, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 122, 255, lambda x: None)
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -147,8 +150,8 @@ class VisionSystem:
                             if color == self.current_turn and len(diff) == 1:
                                 board_pos = diff.pop()
 
-                                if board_pos in self.board_state:
-                                    print(f"🚫 หมากตำแหน่ง {board_pos} ถูกวางไปแล้ว")
+                                if board_pos in self.board_state and board_pos not in self.captured_history:
+                                    print(f"🚫 ลงซ้ำ: ตำแหน่ง {board_pos} เคยมีหมากแล้ว")
                                     continue
 
                                 result = self.gnugo.play_move(color, board_pos)
@@ -157,22 +160,46 @@ class VisionSystem:
                                     continue
 
                                 self.board_state[board_pos] = color
+                                self.move_history.append((color, board_pos))
+                                self.pass_count = 0
                                 print(f"✅ {color.upper()} เดินที่ {board_pos}")
 
                                 if color == 'black':
                                     ai_move = self.gnugo.genmove('white')
-                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
-                                    self.board_state[ai_move] = 'white'
-
-                                    captured_positions = [pos for pos in previous_board_state
-                                                          if pos not in self.board_state and previous_board_state[pos] != 'white']
+                                    if ai_move.lower() == 'pass':
+                                        print("🤖 AI (WHITE) ข้ามตาเดิน (PASS)")
+                                        self.pass_count += 1
+                                    else:
+                                        print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                        self.board_state[ai_move] = 'white'
+                                        self.move_history.append(('white', ai_move))
+                                        self.pass_count = 0
+                                    
+                                    # 🧾 แสดงกระดานจาก GNU Go หลัง AI เดิน
+                                    print("\n🧾 สถานะกระดานจาก GNU Go:")
+                                    print(self.gnugo.show_board())
+                                
+                                    # 🔁 ตรวจจับการจับกิน ทั้งหมากขาวและดำ
+                                    old_positions = set(previous_board_state.keys())
+                                    new_positions = set(self.board_state.keys())
+                                    captured_positions = [
+                                        pos for pos in old_positions - new_positions
+                                        if previous_board_state[pos] in ['white', 'black']
+                                    ]
                                     if captured_positions:
                                         print(f"💥 จับกินที่: {', '.join(captured_positions)}")
+                                        self.captured_history.update(captured_positions)
 
                                     self.last_board_count = len(self.board_state)
                                     time.sleep(0.5)
 
                                 self.current_turn = 'black'
+
+                                if self.pass_count >= 2:
+                                    print("🏁 ทั้งสองฝ่ายผ่านตาเดินติดต่อกัน → จบเกมแล้ว")
+                                    final_score = self.gnugo.send_command("final_score")
+                                    print(f"📊 คะแนนสุดท้าย: {final_score}")
+                                    break
 
                         for pos in captured_positions:
                             px, py = board_to_pixel(pos)
