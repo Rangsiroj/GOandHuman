@@ -27,16 +27,18 @@ class VisionSystem:
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
+
         self.board_state = {}
-        self.captured_history = set()
         self.current_turn = 'black'
-        self.pass_count = 0
-        self.move_history = []
         self.last_board_count = 0
         self.frame_count = 0
         self.prev_gray = None
         self.last_motion_time = time.time()
         self.motion_cooldown = 1.0
+        self.captured_count = {"black": 0, "white": 0}
+
+        self.gnugo = GNUGo()
+        self.gnugo.clear_board()
 
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
@@ -45,7 +47,10 @@ class VisionSystem:
         cv2.createTrackbar('Brightness', "Perspective View", 91, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Perspective View", 78, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 252, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 122, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 134, 255, lambda x: None)
+
+        self.warned_illegal_move = False
+        self.warned_occupied_positions = set()
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -60,6 +65,28 @@ class VisionSystem:
             self.last_motion_time = now
             return False
         return (now - self.last_motion_time) > self.motion_cooldown
+
+    def sync_board_state_from_gnugo(self):
+        """
+        ดึงสถานะกระดานจาก gnugo แล้วอัปเดต self.board_state
+        """
+        board_str = self.gnugo.send_command('showboard')
+        new_state = {}
+        for line in board_str.splitlines():
+            # ค้นหาเฉพาะบรรทัดที่มีตำแหน่งกระดาน เช่น 19 . . .
+            if line.strip() and line[0].isdigit():
+                parts = line.strip().split()
+                row_num = int(parts[0])
+                for col_idx, cell in enumerate(parts[1:]):
+                    if cell in ['X', 'O']:
+                        # แปลง col_idx เป็นตัวอักษร (ข้าม I)
+                        col_chr = chr(ord('A') + col_idx)
+                        if col_chr >= 'I':
+                            col_chr = chr(ord(col_chr) + 1)
+                        pos = f"{col_chr}{row_num}"
+                        color = 'black' if cell == 'X' else 'white'
+                        new_state[pos] = color
+        self.board_state = new_state
 
     def run(self):
         print("📷 เริ่มตรวจจับกระดานด้วย ArUco (ESC เพื่อออก)")
@@ -124,7 +151,8 @@ class VisionSystem:
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                         BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
 
-                        captured_positions = []
+                        captured_by_black = []
+                        captured_by_white = []
                         previous_board_state = self.board_state.copy()
 
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
@@ -150,60 +178,68 @@ class VisionSystem:
                             if color == self.current_turn and len(diff) == 1:
                                 board_pos = diff.pop()
 
-                                if board_pos in self.board_state and board_pos not in self.captured_history:
-                                    print(f"🚫 ลงซ้ำ: ตำแหน่ง {board_pos} เคยมีหมากแล้ว")
+                                if board_pos in self.board_state:
+                                    if board_pos not in self.warned_occupied_positions:
+                                        print(f"🚫 หมากตำแหน่ง {board_pos} ถูกวางไปแล้ว")
+                                        self.warned_occupied_positions.add(board_pos)
                                     continue
 
                                 result = self.gnugo.play_move(color, board_pos)
                                 if "illegal move" in result.lower():
-                                    print(f"❌ หมากไม่ถูกต้อง ({result})")
+                                    if not self.warned_illegal_move:
+                                        print(f"❌ หมากไม่ถูกต้อง ({result})")
+                                        self.warned_illegal_move = True
                                     continue
 
-                                self.board_state[board_pos] = color
-                                self.move_history.append((color, board_pos))
-                                self.pass_count = 0
+                                # reset warning flags on valid move
+                                self.warned_illegal_move = False
+                                self.warned_occupied_positions.clear()
+
+                                # หลังเดินหมากแล้ว sync กระดานใหม่
+                                previous_board_state = self.board_state.copy()  # moved here for correct diff
+                                self.sync_board_state_from_gnugo()
                                 print(f"✅ {color.upper()} เดินที่ {board_pos}")
 
                                 if color == 'black':
                                     ai_move = self.gnugo.genmove('white')
-                                    if ai_move.lower() == 'pass':
-                                        print("🤖 AI (WHITE) ข้ามตาเดิน (PASS)")
-                                        self.pass_count += 1
-                                    else:
-                                        print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
-                                        self.board_state[ai_move] = 'white'
-                                        self.move_history.append(('white', ai_move))
-                                        self.pass_count = 0
-                                    
-                                    # 🧾 แสดงกระดานจาก GNU Go หลัง AI เดิน
-                                    print("\n🧾 สถานะกระดานจาก GNU Go:")
-                                    print(self.gnugo.show_board())
-                                
-                                    # 🔁 ตรวจจับการจับกิน ทั้งหมากขาวและดำ
-                                    old_positions = set(previous_board_state.keys())
-                                    new_positions = set(self.board_state.keys())
-                                    captured_positions = [
-                                        pos for pos in old_positions - new_positions
-                                        if previous_board_state[pos] in ['white', 'black']
-                                    ]
-                                    if captured_positions:
-                                        print(f"💥 จับกินที่: {', '.join(captured_positions)}")
-                                        self.captured_history.update(captured_positions)
+                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                    self.sync_board_state_from_gnugo()
 
-                                    self.last_board_count = len(self.board_state)
-                                    time.sleep(0.5)
+                                new_board_state = self.board_state.copy()
+                                captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
+                                captured_white = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'black']
+                                captured_by_black.extend(captured_black)
+                                captured_by_white.extend(captured_white)
 
+                                if captured_black or captured_white:
+                                    if captured_black:
+                                        self.captured_count['black'] += len(captured_black)
+                                        for pos in captured_black:
+                                            print(f"💥 BLACK จับกินที่: {pos} (หมากขาวถูกกิน)")
+                                    if captured_white:
+                                        self.captured_count['white'] += len(captured_white)
+                                        for pos in captured_white:
+                                            print(f"💥 WHITE จับกินที่: {pos} (หมากดำถูกกิน)")
+                                    # summary message
+                                    capture_message = ""
+                                    if captured_by_black:
+                                        capture_message += f"BLACK จับกินที่: {', '.join(captured_by_black)} (หมากขาวถูกกิน)\n"
+                                    if captured_by_white:
+                                        capture_message += f"WHITE จับกินที่: {', '.join(captured_by_white)} (หมากดำถูกกิน)\n"
+                                    print("\n===== แจ้งเตือนการจับกินหมาก =====")
+                                    print(capture_message.strip())
+                                    print(f"Captured - W: {self.captured_count['white']} | B: {self.captured_count['black']}")
+                                    print("==============================\n")
+
+                                self.last_board_count = len(self.board_state)
+                                time.sleep(0.5)
                                 self.current_turn = 'black'
 
-                                if self.pass_count >= 2:
-                                    print("🏁 ทั้งสองฝ่ายผ่านตาเดินติดต่อกัน → จบเกมแล้ว")
-                                    final_score = self.gnugo.send_command("final_score")
-                                    print(f"📊 คะแนนสุดท้าย: {final_score}")
-                                    break
-
-                        for pos in captured_positions:
+                        # --- วาดวงกลมตำแหน่งที่ถูกกิน ---
+                        for pos in captured_by_black + captured_by_white:
                             px, py = board_to_pixel(pos)
                             cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
+                        # --- จบแก้ไข ---
 
                         score = self.gnugo.send_command("estimate_score")
                         cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
