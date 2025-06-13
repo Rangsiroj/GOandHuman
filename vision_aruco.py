@@ -37,7 +37,7 @@ class VisionSystem:
         self.motion_cooldown = 1.0
         self.captured_count = {"black": 0, "white": 0}
         self.turn_number = 1
-
+        self.undo_pending = False
         self.gnugo = GNUGo()
         self.gnugo.clear_board()
 
@@ -48,7 +48,7 @@ class VisionSystem:
         cv2.createTrackbar('Brightness', "Perspective View", 91, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Perspective View", 78, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 252, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 125, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 135, 255, lambda x: None)
 
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
@@ -253,21 +253,12 @@ class VisionSystem:
                 self.gnugo.send_command('undo')  # Undo BLACK
                 self.sync_board_state_from_gnugo()
 
-                # ดึง move_history แล้วนับจำนวนการเดินของ BLACK
-                board_str = self.gnugo.send_command('move_history')
-                black_moves = 0
-                for line in board_str.splitlines():
-                    if line.strip() and (line.startswith('1.') or line[0].isdigit()):
-                        parts = line.strip().split()
-                        if len(parts) >= 2:
-                            black_moves += 1
+                # แสดงตาปัจจุบัน - 1 (โดยไม่เปลี่ยนตัวแปรจริง)
+                shown_turn = max(1, self.turn_number - 1)
+                print(f"▶️ ตาปัจจุบัน: ตาที่ {shown_turn}")
 
-                self.turn_number = black_moves  # ❗ไม่มี +1
-                print(f"▶️ ตาปัจจุบัน: ตาที่ {self.turn_number}")
                 self.current_turn = 'black'
                 continue
-
-
 
             if key in (ord('r'), ord('R')):
                 print("\n🔄 Reset กระดานใหม่!")
