@@ -192,7 +192,9 @@ class VisionSystem:
                                 previous_board_state = self.board_state.copy()
                                 self.sync_board_state_from_gnugo()
 
-                                print(f"=== ตาที่ {self.turn_number} ===")
+                                turn_to_show = self.turn_number if self.undo_pending - 1 else self.turn_number
+                                print(f"=== ตาที่ {turn_to_show} ===")
+                                self.undo_pending = False  # เคลียร์สถานะ Undo หลังแสดงแล้ว
                                 print(f"✅ BLACK เดินที่ {board_pos}")
 
                                 if color == 'black':
@@ -253,12 +255,15 @@ class VisionSystem:
                 self.gnugo.send_command('undo')  # Undo BLACK
                 self.sync_board_state_from_gnugo()
 
-                # แสดงตาปัจจุบัน - 1 (โดยไม่เปลี่ยนตัวแปรจริง)
-                shown_turn = max(1, self.turn_number - 1)
-                print(f"▶️ ตาปัจจุบัน: ตาที่ {shown_turn}")
+                # ลดหมายเลขตาปัจจุบันลง 1
+                self.turn_number = max(1, self.turn_number - 1)
 
+                # แสดงตาปัจจุบัน
+                print(f"▶️ ตาปัจจุบัน: ตาที่ {self.turn_number}")
+                self.undo_pending = True
                 self.current_turn = 'black'
                 continue
+
 
             if key in (ord('r'), ord('R')):
                 print("\n🔄 Reset กระดานใหม่!")
