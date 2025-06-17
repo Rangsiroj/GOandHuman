@@ -21,7 +21,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://10.52.143.238:4747/video'):
+    def __init__(self, url='http://172.23.34.32:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -275,6 +275,20 @@ class VisionSystem:
                 self.turn_number = 1
                 print("กระดานถูกรีเซ็ตแล้ว\n")
                 continue
+            
+            if key in (ord('p'), ord('P')):
+                print(f"\n⏭️ ผู้เล่น (BLACK) ขอกด PASS ในตาที่ {self.turn_number}")
+                result = self.gnugo.play_move('black', 'pass')
+                print(f"🤖 AI (WHITE) เดินตอบกลับหลัง PASS")
+
+                ai_move = self.gnugo.genmove('white')
+                print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+
+                self.sync_board_state_from_gnugo()
+                self.turn_number += 1
+                self.current_turn = 'black'
+                continue
+            
             if key == 27:
                 break
 
