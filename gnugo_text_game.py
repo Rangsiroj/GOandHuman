@@ -36,6 +36,15 @@ class GNUGo:
     def clear_board(self):
         return self.send_command("clear_board")
 
+    def final_score(self):
+        return self.send_command("final_score")
+
+    def territory(self):
+        return self.send_command("territory")
+
+    def score(self):
+        return self.send_command("score")
+
     def quit(self):
         self.process.terminate()
         print("👋 ออกจากเกมเรียบร้อยแล้ว")

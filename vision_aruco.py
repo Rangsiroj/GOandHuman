@@ -21,7 +21,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://172.23.34.32:4747/video'):
+    def __init__(self, url='http://10.90.104.199:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -46,9 +46,9 @@ class VisionSystem:
 
         cv2.namedWindow("Perspective View")
         cv2.createTrackbar('Brightness', "Perspective View", 91, 100, lambda x: None)
-        cv2.createTrackbar('Contrast', "Perspective View", 78, 100, lambda x: None)
+        cv2.createTrackbar('Contrast', "Perspective View", 85, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 252, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 135, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 164, 255, lambda x: None)
 
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
@@ -182,8 +182,17 @@ class VisionSystem:
 
                                 result = self.gnugo.play_move(color, board_pos)
                                 if "illegal move" in result.lower():
+                                    msg = None
+                                    if "occupied" in result.lower():
+                                        msg = f"🚫 ตำแหน่ง {board_pos} มีหมากอยู่แล้ว (วางซ้ำ)"
+                                    elif "ko" in result.lower():
+                                        msg = f"⚠️ ผิดกติกาโคะ (Ko rule) ที่ตำแหน่ง {board_pos}"
+                                    elif "suicide" in result.lower():
+                                        msg = f"⚠️ เดินที่ {board_pos} แล้วหมากจะถูกกินทันที (Suicide move)"
+                                    else:
+                                        msg = f"❌ หมากไม่ถูกต้อง ({result})"
                                     if not self.warned_illegal_move:
-                                        print(f"❌ หมากไม่ถูกต้อง ({result})")
+                                        print(msg)
                                         self.warned_illegal_move = True
                                     continue
 
@@ -283,6 +292,19 @@ class VisionSystem:
 
                 ai_move = self.gnugo.genmove('white')
                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+
+                # ตรวจสอบว่า AI ก็ PASS ด้วยหรือไม่
+                if ai_move.strip().lower() == 'pass':
+                    print("\n🏁 เกมจบแล้ว!")
+                    score = self.gnugo.final_score()
+                    print(f"📊 ผลคะแนนรวม: {score}")
+                    if score.startswith('B+'):
+                        print("🏆 ฝ่ายดำ (BLACK) ชนะ!")
+                    elif score.startswith('W+'):
+                        print("🏆 ฝ่ายขาว (WHITE) ชนะ!")
+                    else:
+                        print("🤝 ผลเสมอ หรือไม่สามารถคำนวณคะแนนได้")
+                    break
 
                 self.sync_board_state_from_gnugo()
                 self.turn_number += 1
