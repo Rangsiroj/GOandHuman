@@ -207,8 +207,11 @@ class VisionSystem:
                                 print(f"✅ BLACK เดินที่ {board_pos}")
 
                                 if color == 'black':
+                                    import time
+                                    start_time = time.time()
                                     ai_move = self.gnugo.genmove('white')
-                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                    elapsed = time.time() - start_time
+                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move} (ใช้เวลา {elapsed:.2f} วินาที)")
                                     self.sync_board_state_from_gnugo()
                                     self.turn_number += 1
 
