@@ -21,7 +21,7 @@ def board_to_pixel(position):
     return (x, y)
 
 class VisionSystem:
-    def __init__(self, url='http://10.90.104.199:4747/video'):
+    def __init__(self, url='http://10.158.51.72:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -306,7 +306,31 @@ class VisionSystem:
                         print("🤝 ผลเสมอ หรือไม่สามารถคำนวณคะแนนได้")
                     break
 
+                # แจ้งเตือนการจับกินหมากหลัง AI เดิน (กรณี PASS)
+                previous_board_state = self.board_state.copy()
                 self.sync_board_state_from_gnugo()
+                new_board_state = self.board_state.copy()
+                captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
+                captured_white = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'black']
+                if captured_black or captured_white:
+                    if captured_black:
+                        self.captured_count['black'] += len(captured_black)
+                        for pos in captured_black:
+                            print(f"💥 BLACK จับกินที่: {pos} (หมากขาวถูกกิน)")
+                    if captured_white:
+                        self.captured_count['white'] += len(captured_white)
+                        for pos in captured_white:
+                            print(f"💥 WHITE จับกินที่: {pos} (หมากดำถูกกิน)")
+                    capture_message = ""
+                    if captured_black:
+                        capture_message += f"BLACK จับกินที่: {', '.join(captured_black)} (หมากขาวถูกกิน)\n"
+                    if captured_white:
+                        capture_message += f"WHITE จับกินที่: {', '.join(captured_white)} (หมากดำถูกกิน)\n"
+                    print("\n===== แจ้งเตือนการจับกินหมาก =====")
+                    print(capture_message.strip())
+                    print(f"Captured - W: {self.captured_count['white']} | B: {self.captured_count['black']}")
+                    print("==============================\n")
+
                 self.turn_number += 1
                 self.current_turn = 'black'
                 continue
