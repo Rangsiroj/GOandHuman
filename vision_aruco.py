@@ -4,6 +4,7 @@ import time
 import cv2.aruco as aruco
 from board_mapper_aruco import get_board_position
 from gnugo_text_game import GNUGo
+import os
 
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -52,6 +53,9 @@ class VisionSystem:
 
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
+
+        # เก็บลำดับการเดินหมากสำหรับสร้าง SGF
+        self.move_history = []
 
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
@@ -206,14 +210,20 @@ class VisionSystem:
                                 self.undo_pending = False  # เคลียร์สถานะ Undo หลังแสดงแล้ว
                                 print(f"✅ BLACK เดินที่ {board_pos}")
 
+                                # บันทึกการเดินของผู้เล่นลง move_history ก่อน
+                                self.move_history.append(('B', board_pos))
                                 if color == 'black':
                                     import time
+                                    # เริ่มจับเวลาหลังแสดงตำแหน่งหมากดำ
                                     start_time = time.time()
                                     ai_move = self.gnugo.genmove('white')
                                     elapsed = time.time() - start_time
-                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move} (ใช้เวลา {elapsed:.2f} วินาที)")
+                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                    print(f"⌚ ใช้เวลา {elapsed:.2f} วินาที")
                                     self.sync_board_state_from_gnugo()
                                     self.turn_number += 1
+                                    # บันทึกการเดินของ AI ลง move_history หลังจากผู้เล่น
+                                    self.move_history.append(('W', ai_move))
 
                                 new_board_state = self.board_state.copy()
                                 captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
@@ -291,10 +301,17 @@ class VisionSystem:
             if key in (ord('p'), ord('P')):
                 print(f"\n⏭️ ผู้เล่น (BLACK) ขอกด PASS ในตาที่ {self.turn_number}")
                 result = self.gnugo.play_move('black', 'pass')
+                # บันทึก PASS ของผู้เล่น
+                self.move_history.append(('B', ''))
                 print(f"🤖 AI (WHITE) เดินตอบกลับหลัง PASS")
 
                 ai_move = self.gnugo.genmove('white')
                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                # บันทึก PASS หรือการเดินของ AI
+                if ai_move.strip().lower() == 'pass':
+                    self.move_history.append(('W', ''))
+                else:
+                    self.move_history.append(('W', ai_move))
 
                 # ตรวจสอบว่า AI ก็ PASS ด้วยหรือไม่
                 if ai_move.strip().lower() == 'pass':
@@ -307,6 +324,17 @@ class VisionSystem:
                         print("🏆 ฝ่ายขาว (WHITE) ชนะ!")
                     else:
                         print("🤝 ผลเสมอ หรือไม่สามารถคำนวณคะแนนได้")
+
+                    # === สร้างไฟล์ SGF หลังจบเกม (สร้างเองจาก move_history) ===
+                    import datetime
+                    sgf_dir = "SGF"
+                    if not os.path.exists(sgf_dir):
+                        os.makedirs(sgf_dir)
+                    sgf_filename = f"game_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.sgf"
+                    sgf_path = os.path.join(sgf_dir, sgf_filename)
+                    self.save_sgf(sgf_path)
+                    print(f"📁 บันทึกไฟล์ SGF สำเร็จ: {sgf_path} ")
+
                     break
 
                 # แจ้งเตือนการจับกินหมากหลัง AI เดิน (กรณี PASS)
@@ -348,6 +376,32 @@ class VisionSystem:
         cv2.destroyAllWindows()
         self.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
+
+    def save_sgf(self, filepath):
+        # สร้าง SGF string จาก move_history
+        def to_sgf_coord(move):
+            if not move:
+                return ''  # PASS
+            col = move[0].lower()
+            row = move[1:]
+            # SGF ใช้ a-t (ไม่มี i)
+            col_num = ord(col) - ord('a')
+            if col_num >= 8:
+                col_num -= 1
+            sgf_col = chr(ord('a') + col_num)
+            sgf_row = chr(ord('a') + 19 - int(row))
+            return f"{sgf_col}{sgf_row}"
+
+        sgf_moves = ''
+        for color, move in self.move_history:
+            if color == 'B':
+                sgf_moves += f";B[{to_sgf_coord(move)}]"
+            elif color == 'W':
+                sgf_moves += f";W[{to_sgf_coord(move)}]"
+
+        sgf_content = f"(;GM[1]FF[4]SZ[19]{sgf_moves})\n"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(sgf_content)
 
 if __name__ == "__main__":
     system = VisionSystem()

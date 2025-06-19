@@ -45,6 +45,9 @@ class GNUGo:
     def score(self):
         return self.send_command("score")
 
+    def savesgf(self, filepath):
+        return self.send_command(f"savesgf {filepath}")
+
     def quit(self):
         self.process.terminate()
         print("👋 ออกจากเกมเรียบร้อยแล้ว")
