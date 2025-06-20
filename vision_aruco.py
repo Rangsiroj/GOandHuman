@@ -382,6 +382,9 @@ class VisionSystem:
         def to_sgf_coord(move):
             if not move:
                 return ''  # PASS
+            if len(move) < 2 or not move[0].isalpha() or not move[1:].isdigit():
+                # ถ้า move ไม่ถูกต้อง ให้ return '' (ถือว่าเป็น PASS หรือข้าม)
+                return ''
             col = move[0].lower()
             row = move[1:]
             # SGF ใช้ a-t (ไม่มี i)
