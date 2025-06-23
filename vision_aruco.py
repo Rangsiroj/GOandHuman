@@ -277,6 +277,11 @@ class VisionSystem:
                 self.gnugo.send_command('undo')  # Undo BLACK
                 self.sync_board_state_from_gnugo()
 
+                # ลบ 2 ตาล่าสุดออกจาก move_history (W, B)
+                if len(self.move_history) >= 2:
+                    self.move_history.pop()  # ลบ W
+                    self.move_history.pop()  # ลบ B
+
                 # ลดหมายเลขตาปัจจุบันลง 1
                 self.turn_number = max(1, self.turn_number - 1)
 
