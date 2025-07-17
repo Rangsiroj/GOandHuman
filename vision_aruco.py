@@ -4,6 +4,7 @@ import time
 import cv2.aruco as aruco
 from board_mapper_aruco import get_board_position
 from gnugo_text_game import GNUGo
+from game_logic import GameLogic
 import os
 
 def auto_adjust_brightness(gray_image):
@@ -21,6 +22,20 @@ def board_to_pixel(position):
     y = int((row / 18) * 500)
     return (x, y)
 
+def board_pos_to_xy(pos):
+    # pos: เช่น 'A19', 'Q16', ...
+    if len(pos) < 2:
+        return None
+    col_chr = pos[0].upper()
+    row_str = pos[1:]
+    if not row_str.isdigit():
+        return None
+    col = ord(col_chr) - ord('A')
+    if col_chr >= 'I':
+        col -= 1
+    row = 19 - int(row_str)
+    return (col, row)
+
 class VisionSystem:
     def __init__(self, url='http://10.158.51.72:4747/video'):
         self.cap = cv2.VideoCapture(url)
@@ -29,18 +44,8 @@ class VisionSystem:
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
 
-        self.board_state = {}
-        self.current_turn = 'black'
-        self.last_board_count = 0
-        self.frame_count = 0
-        self.prev_gray = None
-        self.last_motion_time = time.time()
-        self.motion_cooldown = 1.0
-        self.captured_count = {"black": 0, "white": 0}
-        self.turn_number = 1
-        self.undo_pending = False
-        self.gnugo = GNUGo()
-        self.gnugo.clear_board()
+        self.logic = GameLogic(GNUGo())
+        self.logic.reset()
 
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
@@ -54,12 +59,9 @@ class VisionSystem:
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
 
-        # เก็บลำดับการเดินหมากสำหรับสร้าง SGF
-        self.move_history = []
-
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
-        if self.prev_gray is None:
+        if not hasattr(self, 'prev_gray'):
             self.prev_gray = gray
             self.last_motion_time = now
             return True
@@ -69,53 +71,32 @@ class VisionSystem:
         if score > threshold:
             self.last_motion_time = now
             return False
-        return (now - self.last_motion_time) > self.motion_cooldown
-
-    def sync_board_state_from_gnugo(self):
-        board_str = self.gnugo.send_command('showboard')
-        new_state = {}
-        for line in board_str.splitlines():
-            if line.strip() and line[0].isdigit():
-                parts = line.strip().split()
-                row_num = int(parts[0])
-                for col_idx, cell in enumerate(parts[1:]):
-                    if cell in ['X', 'O']:
-                        col_chr = chr(ord('A') + col_idx)
-                        if col_chr >= 'I':
-                            col_chr = chr(ord(col_chr) + 1)
-                        pos = f"{col_chr}{row_num}"
-                        color = 'black' if cell == 'X' else 'white'
-                        new_state[pos] = color
-        self.board_state = new_state
+        return (now - self.last_motion_time) > 1.0
 
     def run(self):
         print("📷 เริ่มตรวจจับกระดานด้วย ArUco (ESC เพื่อออก)")
         cv2.namedWindow("Aruco Detection")
-
         while True:
             ret, frame = self.cap.read()
             if not ret:
                 print("⚠️ ไม่สามารถดึงภาพจากกล้องได้")
                 break
-
+            if not hasattr(self, 'frame_count'):
+                self.frame_count = 0
             self.frame_count += 1
             if self.frame_count % 5 != 0:
                 continue
-
             brightness = cv2.getTrackbarPos('Brightness', "Perspective View") - 50
             contrast = cv2.getTrackbarPos('Contrast', "Perspective View") / 50
             white_thresh = cv2.getTrackbarPos('White Threshold', "Perspective View")
             black_thresh = cv2.getTrackbarPos('Black Threshold', "Perspective View")
-
             frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
             if not self.is_camera_stable(gray):
                 cv2.imshow("Aruco Detection", frame)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
-
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
             if ids is not None and len(ids) >= 4:
                 ids = ids.flatten()
@@ -123,7 +104,6 @@ class VisionSystem:
                 for i, marker_id in enumerate(ids):
                     if marker_id in [0, 1, 2, 3]:
                         marker_positions[marker_id] = corners[i][0].mean(axis=0)
-
                 if len(marker_positions) == 4:
                     try:
                         src_pts = np.float32([
@@ -135,57 +115,45 @@ class VisionSystem:
                         dst_pts = np.float32([[0, 0], [500, 0], [500, 500], [0, 500]])
                         matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
                         warped = cv2.warpPerspective(frame, matrix, (500, 500))
-
                         MARGIN = 25
                         cropped = warped[MARGIN:500 - MARGIN, MARGIN:500 - MARGIN]
-
                         enhanced_color = cropped.copy()
                         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(gray)
                         blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
-
                         BW_black = cv2.threshold(blurred, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
                         BW_white = cv2.threshold(blurred, white_thresh, 255, cv2.THRESH_BINARY)[1]
-
                         kernel = np.ones((5, 5), np.uint8)
                         BW_black = cv2.morphologyEx(BW_black, cv2.MORPH_OPEN, kernel)
                         BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
-
                         captured_by_black = []
                         captured_by_white = []
-                        previous_board_state = self.board_state.copy()
-
+                        previous_board_state = self.logic.logic.board_state.copy() if hasattr(self.logic, 'logic') else self.logic.board_state.copy()
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                             detected_positions = set()
-
                             for cnt in contours:
                                 (x, y), r = cv2.minEnclosingCircle(cnt)
                                 area = cv2.contourArea(cnt)
                                 perimeter = cv2.arcLength(cnt, True)
                                 circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
-
                                 if 7 <= r <= 14 and 0.80 <= circularity <= 1.15 and 60 <= area <= 450:
                                     board_pos = get_board_position(int(x), int(y))
                                     if board_pos:
                                         detected_positions.add(board_pos)
                                         cv2.putText(enhanced_color, f"{board_pos}", (int(x), int(y)),
                                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-
-                            previous_positions = {pos for pos, c in self.board_state.items() if c == color}
+                            previous_positions = {pos for pos, c in self.logic.board_state.items() if c == color}
                             diff = detected_positions - previous_positions
-
-                            if color == self.current_turn and len(diff) == 1:
+                            if color == self.logic.current_turn and len(diff) == 1:
                                 board_pos = diff.pop()
-
-                                if board_pos in self.board_state:
+                                if board_pos in self.logic.board_state:
                                     if board_pos not in self.warned_occupied_positions:
                                         print(f"🚫 หมากตำแหน่ง {board_pos} ถูกวางไปแล้ว")
                                         self.warned_occupied_positions.add(board_pos)
                                     continue
-
-                                result = self.gnugo.play_move(color, board_pos)
-                                if "illegal move" in result.lower():
+                                ok, result = self.logic.play_move(color, board_pos)
+                                if not ok:
                                     msg = None
                                     if "occupied" in result.lower():
                                         msg = f"🚫 ตำแหน่ง {board_pos} มีหมากอยู่แล้ว (วางซ้ำ)"
@@ -199,45 +167,30 @@ class VisionSystem:
                                         print(msg)
                                         self.warned_illegal_move = True
                                     continue
-
                                 self.warned_illegal_move = False
                                 self.warned_occupied_positions.clear()
-                                previous_board_state = self.board_state.copy()
-                                self.sync_board_state_from_gnugo()
-
-                                turn_to_show = self.turn_number if self.undo_pending - 1 else self.turn_number
-                                print(f"=== ตาที่ {turn_to_show} ===")
-                                self.undo_pending = False  # เคลียร์สถานะ Undo หลังแสดงแล้ว
-                                print(f"✅ BLACK เดินที่ {board_pos}")
-
-                                # บันทึกการเดินของผู้เล่นลง move_history ก่อน
-                                self.move_history.append(('B', board_pos))
+                                previous_board_state = self.logic.board_state.copy()
+                                xy = board_pos_to_xy(board_pos)
                                 if color == 'black':
-                                    import time
-                                    # เริ่มจับเวลาหลังแสดงตำแหน่งหมากดำ
-                                    start_time = time.time()
-                                    ai_move = self.gnugo.genmove('white')
-                                    elapsed = time.time() - start_time
-                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
+                                    print(f"✅ BLACK เดินที่ {board_pos} (ตำแหน่ง X,Y = {xy[0]},{xy[1]})")
+                                    ai_move, elapsed = self.logic.ai_move()
+                                    ai_xy = board_pos_to_xy(ai_move)
+                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move} (ตำแหน่ง X,Y = {ai_xy[0]},{ai_xy[1]})")
                                     print(f"⌚ ใช้เวลา {elapsed:.2f} วินาที")
-                                    self.sync_board_state_from_gnugo()
-                                    self.turn_number += 1
-                                    # บันทึกการเดินของ AI ลง move_history หลังจากผู้เล่น
-                                    self.move_history.append(('W', ai_move))
-
-                                new_board_state = self.board_state.copy()
+                                else:
+                                    print(f"✅ WHITE เดินที่ {board_pos} (ตำแหน่ง X,Y = {xy[0]},{xy[1]})")
+                                new_board_state = self.logic.board_state.copy()
                                 captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
                                 captured_white = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'black']
                                 captured_by_black.extend(captured_black)
                                 captured_by_white.extend(captured_white)
-
                                 if captured_black or captured_white:
                                     if captured_black:
-                                        self.captured_count['black'] += len(captured_black)
+                                        self.logic.captured_count['black'] += len(captured_black)
                                         for pos in captured_black:
                                             print(f"💥 BLACK จับกินที่: {pos} (หมากขาวถูกกิน)")
                                     if captured_white:
-                                        self.captured_count['white'] += len(captured_white)
+                                        self.logic.captured_count['white'] += len(captured_white)
                                         for pos in captured_white:
                                             print(f"💥 WHITE จับกินที่: {pos} (หมากดำถูกกิน)")
                                     capture_message = ""
@@ -247,81 +200,37 @@ class VisionSystem:
                                         capture_message += f"WHITE จับกินที่: {', '.join(captured_by_white)} (หมากดำถูกกิน)\n"
                                     print("\n===== แจ้งเตือนการจับกินหมาก =====")
                                     print(capture_message.strip())
-                                    print(f"Captured - W: {self.captured_count['white']} | B: {self.captured_count['black']}")
+                                    print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
                                     print("==============================\n")
-
-                                self.last_board_count = len(self.board_state)
-                                time.sleep(0.5)
-                                self.current_turn = 'black'
-
                         for pos in captured_by_black + captured_by_white:
                             px, py = board_to_pixel(pos)
                             cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
-
-                        score = self.gnugo.send_command("estimate_score")
+                        score = self.logic.estimate_score()
                         cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-
                         cv2.imshow("Perspective View", enhanced_color)
                         cv2.imshow("Black Stones", BW_black)
-
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
-
             aruco.drawDetectedMarkers(frame, corners, ids)
             cv2.imshow("Aruco Detection", frame)
             key = cv2.waitKey(1) & 0xFF
-
             if key in (ord('u'), ord('U')):
                 print("\n⏪ Undo ล่าสุด (ย้อนกลับ 1 ตา)")
-                self.gnugo.send_command('undo')  # Undo WHITE
-                self.gnugo.send_command('undo')  # Undo BLACK
-                self.sync_board_state_from_gnugo()
-
-                # ลบ 2 ตาล่าสุดออกจาก move_history (W, B)
-                if len(self.move_history) >= 2:
-                    self.move_history.pop()  # ลบ W
-                    self.move_history.pop()  # ลบ B
-
-                # ลดหมายเลขตาปัจจุบันลง 1
-                self.turn_number = max(1, self.turn_number - 1)
-
-                # แสดงตาปัจจุบัน
-                print(f"▶️ ตาปัจจุบัน: ตาที่ {self.turn_number}")
-                self.undo_pending = True
-                self.current_turn = 'black'
+                self.logic.undo()
+                print(f"▶️ ตาปัจจุบัน: ตาที่ {self.logic.turn_number}")
                 continue
-
-
             if key in (ord('r'), ord('R')):
                 print("\n🔄 Reset กระดานใหม่!")
-                self.gnugo.clear_board()
-                self.sync_board_state_from_gnugo()
-                self.board_state = {}
-                self.captured_count = {"black": 0, "white": 0}
-                self.current_turn = 'black'
-                self.turn_number = 1
+                self.logic.reset()
                 print("กระดานถูกรีเซ็ตแล้ว\n")
                 continue
-            
             if key in (ord('p'), ord('P')):
-                print(f"\n⏭️ ผู้เล่น (BLACK) ขอกด PASS ในตาที่ {self.turn_number}")
-                result = self.gnugo.play_move('black', 'pass')
-                # บันทึก PASS ของผู้เล่น
-                self.move_history.append(('B', ''))
-                print(f"🤖 AI (WHITE) เดินตอบกลับหลัง PASS")
-
-                ai_move = self.gnugo.genmove('white')
+                print(f"\n⏭️ ผู้เล่น (BLACK) ขอกด PASS ในตาที่ {self.logic.turn_number}")
+                ai_move = self.logic.pass_turn()
                 print(f"🤖 AI (WHITE) เดินที่: {ai_move}")
-                # บันทึก PASS หรือการเดินของ AI
-                if ai_move.strip().lower() == 'pass':
-                    self.move_history.append(('W', ''))
-                else:
-                    self.move_history.append(('W', ai_move))
-
-                # ตรวจสอบว่า AI ก็ PASS ด้วยหรือไม่
                 if ai_move.strip().lower() == 'pass':
                     print("\n🏁 เกมจบแล้ว!")
-                    score = self.gnugo.final_score()
+                    score = self.logic.final_score()
                     print(f"📊 ผลคะแนนรวม: {score}")
                     if score.startswith('B+'):
                         print("🏆 ฝ่ายดำ (BLACK) ชนะ!")
@@ -329,32 +238,26 @@ class VisionSystem:
                         print("🏆 ฝ่ายขาว (WHITE) ชนะ!")
                     else:
                         print("🤝 ผลเสมอ หรือไม่สามารถคำนวณคะแนนได้")
-
-                    # === สร้างไฟล์ SGF หลังจบเกม (สร้างเองจาก move_history) ===
                     import datetime
                     sgf_dir = "SGF"
                     if not os.path.exists(sgf_dir):
                         os.makedirs(sgf_dir)
                     sgf_filename = f"game_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.sgf"
                     sgf_path = os.path.join(sgf_dir, sgf_filename)
-                    self.save_sgf(sgf_path)
+                    self.logic.save_sgf(sgf_path)
                     print(f"📁 บันทึกไฟล์ SGF สำเร็จ: {sgf_path} ")
-
                     break
-
-                # แจ้งเตือนการจับกินหมากหลัง AI เดิน (กรณี PASS)
-                previous_board_state = self.board_state.copy()
-                self.sync_board_state_from_gnugo()
-                new_board_state = self.board_state.copy()
+                previous_board_state = self.logic.board_state.copy()
+                new_board_state = self.logic.board_state.copy()
                 captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
                 captured_white = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'black']
                 if captured_black or captured_white:
                     if captured_black:
-                        self.captured_count['black'] += len(captured_black)
+                        self.logic.captured_count['black'] += len(captured_black)
                         for pos in captured_black:
                             print(f"💥 BLACK จับกินที่: {pos} (หมากขาวถูกกิน)")
                     if captured_white:
-                        self.captured_count['white'] += len(captured_white)
+                        self.logic.captured_count['white'] += len(captured_white)
                         for pos in captured_white:
                             print(f"💥 WHITE จับกินที่: {pos} (หมากดำถูกกิน)")
                     capture_message = ""
@@ -364,52 +267,18 @@ class VisionSystem:
                         capture_message += f"WHITE จับกินที่: {', '.join(captured_white)} (หมากดำถูกกิน)\n"
                     print("\n===== แจ้งเตือนการจับกินหมาก =====")
                     print(capture_message.strip())
-                    print(f"Captured - W: {self.captured_count['white']} | B: {self.captured_count['black']}")
+                    print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
                     print("==============================\n")
-
-                self.turn_number += 1
-                self.current_turn = 'black'
                 continue
-            
             if key == 27:
                 break
-
         self.release()
 
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
-        self.gnugo.quit()
+        self.logic.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
-
-    def save_sgf(self, filepath):
-        # สร้าง SGF string จาก move_history
-        def to_sgf_coord(move):
-            if not move:
-                return ''  # PASS
-            if len(move) < 2 or not move[0].isalpha() or not move[1:].isdigit():
-                # ถ้า move ไม่ถูกต้อง ให้ return '' (ถือว่าเป็น PASS หรือข้าม)
-                return ''
-            col = move[0].lower()
-            row = move[1:]
-            # SGF ใช้ a-t (ไม่มี i)
-            col_num = ord(col) - ord('a')
-            if col_num >= 8:
-                col_num -= 1
-            sgf_col = chr(ord('a') + col_num)
-            sgf_row = chr(ord('a') + 19 - int(row))
-            return f"{sgf_col}{sgf_row}"
-
-        sgf_moves = ''
-        for color, move in self.move_history:
-            if color == 'B':
-                sgf_moves += f";B[{to_sgf_coord(move)}]"
-            elif color == 'W':
-                sgf_moves += f";W[{to_sgf_coord(move)}]"
-
-        sgf_content = f"(;GM[1]FF[4]SZ[19]{sgf_moves})\n"
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(sgf_content)
 
 if __name__ == "__main__":
     system = VisionSystem()
