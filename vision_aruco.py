@@ -37,7 +37,7 @@ def board_pos_to_xy(pos):
     return (col, row)
 
 class VisionSystem:
-    def __init__(self, url='http://10.158.51.72:4747/video'):
+    def __init__(self, url='http://10.91.212.186:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -51,10 +51,10 @@ class VisionSystem:
         self.parameters = aruco.DetectorParameters()
 
         cv2.namedWindow("Perspective View")
-        cv2.createTrackbar('Brightness', "Perspective View", 91, 100, lambda x: None)
-        cv2.createTrackbar('Contrast', "Perspective View", 85, 100, lambda x: None)
+        cv2.createTrackbar('Brightness', "Perspective View", 94, 100, lambda x: None)
+        cv2.createTrackbar('Contrast', "Perspective View", 87, 100, lambda x: None)
         cv2.createTrackbar('White Threshold', "Perspective View", 252, 255, lambda x: None)
-        cv2.createTrackbar('Black Threshold', "Perspective View", 164, 255, lambda x: None)
+        cv2.createTrackbar('Black Threshold', "Perspective View", 174, 255, lambda x: None)
 
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
@@ -172,11 +172,16 @@ class VisionSystem:
                                 previous_board_state = self.logic.board_state.copy()
                                 xy = board_pos_to_xy(board_pos)
                                 if color == 'black':
+                                    print(f"=== ตาที่ {self.logic.turn_number} ===")
                                     print(f"✅ BLACK เดินที่ {board_pos} (ตำแหน่ง X,Y = {xy[0]},{xy[1]})")
                                     ai_move, elapsed = self.logic.ai_move()
-                                    ai_xy = board_pos_to_xy(ai_move)
-                                    print(f"🤖 AI (WHITE) เดินที่: {ai_move} (ตำแหน่ง X,Y = {ai_xy[0]},{ai_xy[1]})")
-                                    print(f"⌚ ใช้เวลา {elapsed:.2f} วินาที")
+                                    if ai_move.strip().lower() == 'pass':
+                                        print(f"🤖 AI (WHITE) เดินที่: PASS")
+                                        print(f"⌚ ใช้เวลา {elapsed:.2f} วินาที")
+                                    else:
+                                        ai_xy = board_pos_to_xy(ai_move)
+                                        print(f"🤖 AI (WHITE) เดินที่: {ai_move} (ตำแหน่ง X,Y = {ai_xy[0]},{ai_xy[1]})")
+                                        print(f"⌚ ใช้เวลา {elapsed:.2f} วินาที")
                                 else:
                                     print(f"✅ WHITE เดินที่ {board_pos} (ตำแหน่ง X,Y = {xy[0]},{xy[1]})")
                                 new_board_state = self.logic.board_state.copy()
