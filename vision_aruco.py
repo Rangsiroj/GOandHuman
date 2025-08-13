@@ -37,7 +37,7 @@ def board_pos_to_xy(pos):
     return (col, row)
 
 class VisionSystem:
-    def __init__(self, url='http://10.91.212.186:4747/video'):
+    def __init__(self, url='http://10.106.3.149:4747/video'):
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
@@ -128,6 +128,7 @@ class VisionSystem:
                         BW_white = cv2.morphologyEx(BW_white, cv2.MORPH_OPEN, kernel)
                         captured_by_black = []
                         captured_by_white = []
+                        # เก็บสถานะกระดานก่อนเดินหมาก
                         previous_board_state = self.logic.logic.board_state.copy() if hasattr(self.logic, 'logic') else self.logic.board_state.copy()
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -169,11 +170,25 @@ class VisionSystem:
                                     continue
                                 self.warned_illegal_move = False
                                 self.warned_occupied_positions.clear()
-                                previous_board_state = self.logic.board_state.copy()
+                                # previous_board_state = self.logic.board_state.copy()  # ย้ายไปไว้ก่อนเดินหมาก
                                 xy = board_pos_to_xy(board_pos)
                                 if color == 'black':
                                     print(f"=== ตาที่ {self.logic.turn_number} ===")
                                     print(f"✅ BLACK เดินที่ {board_pos} (ตำแหน่ง X,Y = {xy[0]},{xy[1]})")
+                                    # แจ้งเตือนจับกินหมากขาวหลังหมากดำเดิน
+                                    new_board_state_after_black = self.logic.board_state.copy()
+                                    captured_white_by_black = [pos for pos in previous_board_state if pos not in new_board_state_after_black and previous_board_state[pos] == 'white']
+                                    if captured_white_by_black:
+                                        self.logic.captured_count['black'] += len(captured_white_by_black)
+                                        for pos in captured_white_by_black:
+                                            print(f"💥 BLACK จับกินที่: {pos} (หมากขาวถูกกิน)")
+                                        capture_message = f"BLACK จับกินที่: {', '.join(captured_white_by_black)} (หมากขาวถูกกิน)"
+                                        print("\n===== แจ้งเตือนการจับกินหมาก =====")
+                                        print(capture_message)
+                                        print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
+                                        print("==============================\n")
+                                     # เก็บตำแหน่งที่ถูกจับกินล่าสุด เพื่อไม่ให้แจ้งเตือนซ้ำ
+                                    self.last_captured_white_by_black = set(captured_white_by_black)
                                     ai_move, elapsed = self.logic.ai_move()
                                     if ai_move.strip().lower() == 'pass':
                                         print(f"🤖 AI (WHITE) เดินที่: PASS")
@@ -187,6 +202,9 @@ class VisionSystem:
                                 new_board_state = self.logic.board_state.copy()
                                 captured_black = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'white']
                                 captured_white = [pos for pos in previous_board_state if pos not in new_board_state and previous_board_state[pos] == 'black']
+                                # ตรวจสอบไม่ให้แจ้งเตือนซ้ำตำแหน่งที่หมากขาวถูกจับกินโดยหมากดำ
+                                if hasattr(self, 'last_captured_white_by_black'):
+                                    captured_black = [pos for pos in captured_black if pos not in self.last_captured_white_by_black]
                                 captured_by_black.extend(captured_black)
                                 captured_by_white.extend(captured_white)
                                 if captured_black or captured_white:
@@ -207,6 +225,8 @@ class VisionSystem:
                                     print(capture_message.strip())
                                     print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
                                     print("==============================\n")
+                                # เคลียร์ตำแหน่งที่ถูกจับกินล่าสุดหลังแจ้งเตือน
+                                self.last_captured_white_by_black = set()
                         for pos in captured_by_black + captured_by_white:
                             px, py = board_to_pixel(pos)
                             cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
