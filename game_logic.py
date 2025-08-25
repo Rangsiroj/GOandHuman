@@ -1,26 +1,33 @@
+
+# -----------------------------
+# GameLogic: จัดการตรรกะเกมโกะและเชื่อมต่อกับ GNUGo (AI)
+# -----------------------------
 class GameLogic:
     def __init__(self, gnugo):
-        self.gnugo = gnugo
-        self.reset()
+        self.gnugo = gnugo  # อ็อบเจ็กต์ GNUGo สำหรับควบคุม AI
+        self.reset()        # รีเซ็ตสถานะเกม
 
+    # รีเซ็ตสถานะเกมและกระดานใหม่
     def reset(self):
         self.gnugo.clear_board()
-        self.board_state = {}
-        self.captured_count = {"black": 0, "white": 0}
-        self.move_history = []
-        self.current_turn = 'black'
+        self.board_state = {}  # สถานะหมากบนกระดาน
+        self.captured_count = {"black": 0, "white": 0}  # จำนวนหมากที่ถูกจับกิน
+        self.move_history = []  # ประวัติการเดินหมาก
+        self.current_turn = 'black'  # สีที่เล่นปัจจุบัน
         self.turn_number = 1
         self.undo_pending = False
 
+    # เล่นหมากที่ตำแหน่ง pos ด้วยสีที่กำหนด
     def play_move(self, color, pos):
         result = self.gnugo.play_move(color, pos)
         if "illegal move" in result.lower():
-            return False, result
-        self.sync_board_state_from_gnugo()
-        self.move_history.append((color[0].upper(), pos))
-        self.current_turn = 'white' if color == 'black' else 'black'
+            return False, result  # ถ้าเดินผิดกติกา
+        self.sync_board_state_from_gnugo()  # อัปเดตสถานะกระดาน
+        self.move_history.append((color[0].upper(), pos))  # บันทึกประวัติ
+        self.current_turn = 'white' if color == 'black' else 'black'  # สลับตา
         return True, result
 
+    # ให้ AI เดินหมากขาวและคืนตำแหน่งที่เดินกับเวลาที่ใช้
     def ai_move(self):
         import time
         start_time = time.time()
@@ -32,6 +39,7 @@ class GameLogic:
         self.turn_number += 1
         return ai_pos, elapsed
 
+    # ข้ามตา (pass) และให้ AI เดินหมากขาว
     def pass_turn(self):
         result = self.gnugo.play_move('black', 'pass')
         self.move_history.append(('B', ''))
@@ -45,6 +53,7 @@ class GameLogic:
         self.current_turn = 'black'
         return ai_move
 
+    # ย้อนกลับการเดินหมาก 2 ครั้ง (ผู้เล่นและ AI)
     def undo(self):
         self.gnugo.send_command('undo')
         self.gnugo.send_command('undo')
@@ -56,6 +65,7 @@ class GameLogic:
         self.current_turn = 'black'
         self.undo_pending = True
 
+    # อัปเดตสถานะกระดานจากข้อมูลที่ได้จาก GNUGo
     def sync_board_state_from_gnugo(self):
         board_str = self.gnugo.send_command('showboard')
         new_state = {}
@@ -73,12 +83,15 @@ class GameLogic:
                         new_state[pos] = color
         self.board_state = new_state
 
+    # ประเมินคะแนนปัจจุบันโดย AI
     def estimate_score(self):
         return self.gnugo.send_command("estimate_score")
 
+    # คืนคะแนนสุดท้ายเมื่อจบเกม
     def final_score(self):
         return self.gnugo.final_score()
 
+    # บันทึกประวัติการเดินหมากเป็นไฟล์ SGF (Smart Game Format)
     def save_sgf(self, filepath):
         def to_sgf_coord(move):
             if not move:

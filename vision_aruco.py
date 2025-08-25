@@ -1,16 +1,25 @@
+
+# -----------------------------
+# VisionSystem: ระบบตรวจจับหมากโกะด้วย ArUco Marker
+# -----------------------------
+
 import cv2
 import numpy as np
 import time
 import cv2.aruco as aruco
-from board_mapper_aruco import get_board_position
-from gnugo_text_game import GNUGo
-from game_logic import GameLogic
+from board_mapper_aruco import get_board_position  # ฟังก์ชันแปลงพิกัด pixel เป็นตำแหน่งบนกระดาน
+from gnugo_text_game import GNUGo  # คลาสสำหรับควบคุม AI โกะ
+from game_logic import GameLogic  # ตรรกะเกมโกะ
 import os
 
+
+# ปรับความสว่างของภาพด้วย CLAHE เพื่อเพิ่ม contrast
 def auto_adjust_brightness(gray_image):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(gray_image)
 
+
+# แปลงตำแหน่งบนกระดาน (เช่น 'A19') เป็นพิกัด pixel สำหรับแสดงผล
 def board_to_pixel(position):
     if len(position) < 2:
         return (0, 0)
@@ -22,6 +31,8 @@ def board_to_pixel(position):
     y = int((row / 18) * 500)
     return (x, y)
 
+
+# แปลงตำแหน่งบนกระดาน (เช่น 'A19') เป็นพิกัดในรูปแบบ (col, row)
 def board_pos_to_xy(pos):
     # pos: เช่น 'A19', 'Q16', ...
     if len(pos) < 2:
@@ -36,20 +47,26 @@ def board_pos_to_xy(pos):
     row = 19 - int(row_str)
     return (col, row)
 
+
+# คลาสหลักสำหรับระบบ Vision ที่ใช้ ArUco ในการตรวจจับกระดานและหมาก
 class VisionSystem:
     def __init__(self, url='http://10.106.3.149:4747/video'):
+        # เปิดกล้องจาก URL ที่กำหนด
         self.cap = cv2.VideoCapture(url)
         if not self.cap.isOpened():
             print("❌ ไม่สามารถเชื่อมต่อกล้องได้")
         else:
             print("✅ เชื่อมต่อกล้องสำเร็จ")
 
+        # สร้างอ็อบเจ็กต์สำหรับ logic ของเกมและรีเซ็ตกระดาน
         self.logic = GameLogic(GNUGo())
         self.logic.reset()
 
+        # กำหนด dictionary และ parameter สำหรับ ArUco marker
         self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
         self.parameters = aruco.DetectorParameters()
 
+        # สร้าง trackbar สำหรับปรับ brightness, contrast, threshold
         cv2.namedWindow("Perspective View")
         cv2.createTrackbar('Brightness', "Perspective View", 94, 100, lambda x: None)
         cv2.createTrackbar('Contrast', "Perspective View", 87, 100, lambda x: None)
@@ -59,6 +76,8 @@ class VisionSystem:
         self.warned_illegal_move = False
         self.warned_occupied_positions = set()
 
+
+    # ตรวจสอบว่ากล้องนิ่งหรือไม่ โดยเปรียบเทียบภาพก่อนหน้า
     def is_camera_stable(self, gray, threshold=500000):
         now = time.time()
         if not hasattr(self, 'prev_gray'):
@@ -73,6 +92,8 @@ class VisionSystem:
             return False
         return (now - self.last_motion_time) > 1.0
 
+
+    # ฟังก์ชันหลักสำหรับรันระบบตรวจจับ ArUco และประมวลผลภาพ
     def run(self):
         print("📷 เริ่มตรวจจับกระดานด้วย ArUco (ESC เพื่อออก)")
         cv2.namedWindow("Aruco Detection")
@@ -86,18 +107,22 @@ class VisionSystem:
             self.frame_count += 1
             if self.frame_count % 5 != 0:
                 continue
+            # อ่านค่าจาก trackbar เพื่อปรับภาพ
             brightness = cv2.getTrackbarPos('Brightness', "Perspective View") - 50
             contrast = cv2.getTrackbarPos('Contrast', "Perspective View") / 50
             white_thresh = cv2.getTrackbarPos('White Threshold', "Perspective View")
             black_thresh = cv2.getTrackbarPos('Black Threshold', "Perspective View")
             frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # ตรวจสอบว่ากล้องนิ่งหรือไม่
             if not self.is_camera_stable(gray):
                 cv2.imshow("Aruco Detection", frame)
                 if cv2.waitKey(1) & 0xFF == 27:
                     break
                 continue
+            # ตรวจจับ ArUco marker ในภาพ
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.parameters)
+            # ตรวจสอบว่าพบ marker ครบ 4 จุดหรือไม่
             if ids is not None and len(ids) >= 4:
                 ids = ids.flatten()
                 marker_positions = {}
@@ -106,6 +131,7 @@ class VisionSystem:
                         marker_positions[marker_id] = corners[i][0].mean(axis=0)
                 if len(marker_positions) == 4:
                     try:
+                        # Perspective Transform เพื่อปรับมุมมองภาพกระดาน
                         src_pts = np.float32([
                             marker_positions[0],
                             marker_positions[1],
@@ -121,6 +147,7 @@ class VisionSystem:
                         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
                         enhanced = auto_adjust_brightness(gray)
                         blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+                        # สร้าง mask สำหรับหมากดำและหมากขาว
                         BW_black = cv2.threshold(blurred, black_thresh, 255, cv2.THRESH_BINARY_INV)[1]
                         BW_white = cv2.threshold(blurred, white_thresh, 255, cv2.THRESH_BINARY)[1]
                         kernel = np.ones((5, 5), np.uint8)
@@ -130,6 +157,7 @@ class VisionSystem:
                         captured_by_white = []
                         # เก็บสถานะกระดานก่อนเดินหมาก
                         previous_board_state = self.logic.logic.board_state.copy() if hasattr(self.logic, 'logic') else self.logic.board_state.copy()
+                        # ตรวจจับหมากขาวและดำในภาพ
                         for mask, color in [(BW_white, "white"), (BW_black, "black")]:
                             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                             detected_positions = set()
@@ -138,6 +166,7 @@ class VisionSystem:
                                 area = cv2.contourArea(cnt)
                                 perimeter = cv2.arcLength(cnt, True)
                                 circularity = 4 * np.pi * area / (perimeter ** 2) if perimeter > 0 else 0
+                                # เงื่อนไขสำหรับตรวจจับหมาก
                                 if 7 <= r <= 14 and 0.80 <= circularity <= 1.15 and 60 <= area <= 450:
                                     board_pos = get_board_position(int(x), int(y))
                                     if board_pos:
@@ -146,6 +175,7 @@ class VisionSystem:
                                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
                             previous_positions = {pos for pos, c in self.logic.board_state.items() if c == color}
                             diff = detected_positions - previous_positions
+                            # ถ้าเป็นตาของผู้เล่นและมีหมากใหม่ 1 ตำแหน่ง
                             if color == self.logic.current_turn and len(diff) == 1:
                                 board_pos = diff.pop()
                                 if board_pos in self.logic.board_state:
@@ -170,7 +200,6 @@ class VisionSystem:
                                     continue
                                 self.warned_illegal_move = False
                                 self.warned_occupied_positions.clear()
-                                # previous_board_state = self.logic.board_state.copy()  # ย้ายไปไว้ก่อนเดินหมาก
                                 xy = board_pos_to_xy(board_pos)
                                 if color == 'black':
                                     print(f"=== ตาที่ {self.logic.turn_number} ===")
@@ -187,7 +216,6 @@ class VisionSystem:
                                         print(capture_message)
                                         print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
                                         print("==============================\n")
-                                     # เก็บตำแหน่งที่ถูกจับกินล่าสุด เพื่อไม่ให้แจ้งเตือนซ้ำ
                                     self.last_captured_white_by_black = set(captured_white_by_black)
                                     ai_move, elapsed = self.logic.ai_move()
                                     if ai_move.strip().lower() == 'pass':
@@ -225,20 +253,24 @@ class VisionSystem:
                                     print(capture_message.strip())
                                     print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
                                     print("==============================\n")
-                                # เคลียร์ตำแหน่งที่ถูกจับกินล่าสุดหลังแจ้งเตือน
                                 self.last_captured_white_by_black = set()
+                        # วาดวงกลมแสดงตำแหน่งที่ถูกจับกิน
                         for pos in captured_by_black + captured_by_white:
                             px, py = board_to_pixel(pos)
                             cv2.circle(enhanced_color, (px, py), 15, (0, 0, 255), 2)
+                        # แสดงคะแนนที่ประเมินโดย AI
                         score = self.logic.estimate_score()
                         cv2.putText(enhanced_color, f"Score: {score}", (10, 480), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                        # แสดงผลภาพต่าง ๆ
                         cv2.imshow("Perspective View", enhanced_color)
                         cv2.imshow("Black Stones", BW_black)
                     except Exception as e:
                         print(f"⚠️ Transform Error: {e}")
+            # วาด marker ที่ตรวจจับได้บนภาพ
             aruco.drawDetectedMarkers(frame, corners, ids)
             cv2.imshow("Aruco Detection", frame)
             key = cv2.waitKey(1) & 0xFF
+            # กด u/U เพื่อ Undo, r/R เพื่อ Reset, p/P เพื่อ Pass, ESC เพื่อออก
             if key in (ord('u'), ord('U')):
                 print("\n⏪ Undo ล่าสุด (ย้อนกลับ 1 ตา)")
                 self.logic.undo()
@@ -292,19 +324,23 @@ class VisionSystem:
                         capture_message += f"WHITE จับกินที่: {', '.join(captured_white)} (หมากดำถูกกิน)\n"
                     print("\n===== แจ้งเตือนการจับกินหมาก =====")
                     print(capture_message.strip())
-                    print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}")
+                    print(f"Captured - W: {self.logic.captured_count['white']} | B: {self.logic.captured_count['black']}\n")
                     print("==============================\n")
                 continue
             if key == 27:
                 break
         self.release()
 
+
+    # ปิดกล้องและหน้าต่างทั้งหมดเมื่อจบการทำงาน
     def release(self):
         self.cap.release()
         cv2.destroyAllWindows()
         self.logic.gnugo.quit()
         print("🔕 ปิดกล้องและ AI เรียบร้อยแล้ว")
 
+
+# รันโปรแกรมหลักเมื่อถูกเรียกโดยตรง
 if __name__ == "__main__":
     system = VisionSystem()
     system.run()
